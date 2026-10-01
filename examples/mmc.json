@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "M/M/5 queue (lambda=4, mu=1)",
+  "description": "M/M/c with c=5. Theory: utilisation 0.8, Lq 2.2165, Wq 0.5541, W 1.5541.",
+  "settings": { "duration": 20000, "warmUp": 2000, "seed": 42, "replications": 10 },
+  "components": [
+    { "type": "EntityGenerator", "name": "arrivals", "inputs": { "interArrivalTime": { "dist": "exponential", "mean": 0.25 } }, "links": { "next": "queue" } },
+    { "type": "Queue", "name": "queue" },
+    { "type": "Server", "name": "server", "inputs": { "capacity": 5, "serviceTime": { "dist": "exponential", "mean": 1 } }, "links": { "queue": "queue", "next": "sink" } },
+    { "type": "EntitySink", "name": "sink" }
+  ]
+}

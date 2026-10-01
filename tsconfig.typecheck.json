@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@chronon-sim/engine": ["./packages/engine/src/index.ts"],
+      "@chronon-sim/platform": ["./packages/platform/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src", "packages/*/test", "apps/*/src", "apps/*/test", "vitest.config.ts"]
+}

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "M/M/1 queue (lambda=0.8, mu=1)",
+  "description": "Classic M/M/1. Theory: utilisation 0.8, Lq 3.2, Wq 4.0, W 5.0.",
+  "settings": { "duration": 50000, "warmUp": 5000, "seed": 42, "replications": 10 },
+  "components": [
+    { "type": "EntityGenerator", "name": "arrivals", "inputs": { "interArrivalTime": { "dist": "exponential", "mean": 1.25 } }, "links": { "next": "queue" } },
+    { "type": "Queue", "name": "queue" },
+    { "type": "Server", "name": "server", "inputs": { "capacity": 1, "serviceTime": { "dist": "exponential", "mean": 1 } }, "links": { "queue": "queue", "next": "sink" } },
+    { "type": "EntitySink", "name": "sink" }
+  ]
+}

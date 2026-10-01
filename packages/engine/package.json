@@ -1,0 +1,14 @@
+{
+  "name": "@chronon-sim/engine",
+  "version": "0.1.0",
+  "description": "Domain-neutral headless discrete event simulation engine (no DOM, no Node APIs).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "sideEffects": false
+}

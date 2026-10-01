@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Traffic spike: 50/s -> 250/s for 2 minutes",
+  "description": "Capacity 100 workers x ~2/s each = ~200/s. The spike exceeds capacity, so the backlog grows for 120 s and then drains.",
+  "settings": {
+    "duration": 600,
+    "warmUp": 0,
+    "seed": 7,
+    "replications": 5,
+    "timeSeries": { "interval": 5, "outputs": ["queue.QueueLength", "server.BusyWorkers"] }
+  },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "traffic",
+      "inputs": { "mode": "rateProfile", "rateProfile": [[0, 50], [180, 250], [300, 50]] },
+      "links": { "next": "queue" }
+    },
+    { "type": "Queue", "name": "queue" },
+    {
+      "type": "Server",
+      "name": "server",
+      "inputs": { "capacity": 100, "serviceTime": { "dist": "lognormal", "mean": 0.5, "stdDev": 0.25 } },
+      "links": { "queue": "queue", "next": "sink" }
+    },
+    { "type": "EntitySink", "name": "sink" }
+  ]
+}

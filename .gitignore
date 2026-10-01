@@ -1,0 +1,22 @@
+# dependencies & build output
+node_modules/
+dist/
+*.tsbuildinfo
+out/
+coverage/
+
+# planning / AI-assistant artifacts
+PLAN.md
+.claude/
+CLAUDE.md
+AGENTS.md
+.claude-*
+
+# env, logs, OS & editor noise
+.env
+.env.*
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

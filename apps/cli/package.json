@@ -1,0 +1,15 @@
+{
+  "name": "@chronon-sim/cli",
+  "version": "0.1.0",
+  "description": "The chronon command-line runner for Chronon Sim models.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": { "chronon": "./dist/bin.js" },
+  "main": "./dist/main.js",
+  "files": ["dist"],
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@chronon-sim/engine": "workspace:*",
+    "@chronon-sim/platform": "workspace:*"
+  }
+}
