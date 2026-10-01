@@ -28,6 +28,9 @@
     },
     {
       "path": "../../packages/sdk"
+    },
+    {
+      "path": "../../packages/calibrate"
     }
   ]
 }

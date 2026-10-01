@@ -29,10 +29,12 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
-      # Python lets the cross-language tests (TypeScript SDK vs Python SDK) run instead of being skipped.
+      # Python lets the cross-language tests (TypeScript SDK vs Python SDK) run instead of being skipped, and
+      # SimPy is the independent simulator that Chronon Sim's results are cross-checked against.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: python -m pip install simpy==4.1.2
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm build
@@ -104,7 +106,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/tarballs" "$RUNNER_TEMP/consumer"
-          for p in packages/platform packages/engine packages/sdk packages/report packages/importer apps/cli; do
+          for p in packages/platform packages/engine packages/sdk packages/report packages/importer packages/calibrate apps/cli; do
             (cd "$p" && pnpm pack --pack-destination "$RUNNER_TEMP/tarballs")
           done
           cd "$RUNNER_TEMP/consumer"

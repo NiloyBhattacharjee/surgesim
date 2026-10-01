@@ -90,7 +90,7 @@ describe("the scanner itself", () => {
  * The engine additionally must not read the clock or use unseeded randomness: simulation time and
  * randomness come only from the kernel and the seeded generator.
  */
-const PACKAGES = ["engine", "sdk", "report", "importer"];
+const PACKAGES = ["engine", "sdk", "report", "importer", "calibrate"];
 
 describe("embeddable packages use no Node or DOM APIs", () => {
   for (const pkg of PACKAGES) {

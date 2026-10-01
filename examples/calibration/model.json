@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "name": "Calibrated service (inputs fitted from the synthetic monitoring export)",
+  "description": "Built only from `chronon fit` and `chronon fit-arrivals` output plus the known worker count (8). Run `chronon calibrate examples/calibration/model.json --observed examples/calibration/observed.json` to compare it with what the system measured.",
+  "settings": { "duration": 900, "seed": 1, "replications": 20 },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "traffic",
+      "inputs": { "mode": "rateProfile", "rateProfile": [[0, 8.173], [300.3, 20.23], [600.5, 8.13]] },
+      "links": { "next": "queue" }
+    },
+    { "type": "Queue", "name": "queue" },
+    {
+      "type": "Server",
+      "name": "server",
+      "inputs": { "capacity": 8, "serviceTime": { "dist": "lognormal", "mean": 0.3504, "stdDev": 0.1982 } },
+      "links": { "queue": "queue", "next": "sink" }
+    },
+    { "type": "EntitySink", "name": "sink" }
+  ]
+}

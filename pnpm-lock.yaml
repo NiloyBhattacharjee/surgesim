@@ -29,6 +29,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@chronon-sim/calibrate':
+        specifier: workspace:*
+        version: link:../../packages/calibrate
       '@chronon-sim/engine':
         specifier: workspace:*
         version: link:../../packages/engine
@@ -57,6 +60,12 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+
+  packages/calibrate:
+    dependencies:
+      '@chronon-sim/engine':
+        specifier: workspace:*
+        version: link:../engine
 
   packages/engine: {}
 

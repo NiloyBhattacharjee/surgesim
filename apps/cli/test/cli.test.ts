@@ -474,3 +474,119 @@ describe("models that can never finish", () => {
     expect(await h.call(["run", "m"])).toBe(EXIT_OK);
   });
 });
+
+describe("calibration workflow (synthetic monitoring export with a known ground truth)", () => {
+  const dir = join(examplesDir, "calibration");
+  const read = (f: string) => readFileSync(join(dir, f), "utf8");
+  const files = () => ({ "service.csv": read("service_times.csv"), "arrivals.csv": read("arrivals.csv"), "model.json": read("model.json"), "observed.json": read("observed.json") });
+
+  // The ground truth behind the data (see validation/make_calibration_example.py):
+  // 8 workers, lognormal service mean 0.35 s and sd 0.20 s, arrivals 8/s, then 20/s from 300 s, then 8/s from 600 s.
+
+  it("fit recovers the service-time distribution: lognormal, mean 0.35 and sd 0.20, from milliseconds", async () => {
+    const h = harness(files());
+    expect(await h.call(["fit", "service.csv", "--scale", "0.001"])).toBe(EXIT_OK);
+    const out = h.stdout.join("\n");
+    expect(out).toContain("Read 10961 values from duration_ms, multiplied by 0.001");
+    const best = /Use in a model[^\n]*\n\s*(\{[^\n]*\})/.exec(out);
+    expect(best).not.toBeNull();
+    const spec = JSON.parse(best![1]!) as { dist: string; mean: number; stdDev: number };
+    expect(spec.dist).toBe("lognormal");
+    expect(Math.abs(spec.mean / 0.35 - 1)).toBeLessThan(0.03);
+    expect(Math.abs(spec.stdDev / 0.2 - 1)).toBeLessThan(0.08);
+    // lognormal is listed first, ahead of every other family
+    expect(out.indexOf("lognormal")).toBeLessThan(out.indexOf("normal  "));
+  });
+
+  it("fit-arrivals recovers the spike: three segments, breakpoints near 300 s and 600 s, rates near 8, 20, 8", async () => {
+    const h = harness(files());
+    expect(await h.call(["fit-arrivals", "arrivals.csv", "--window", "30"])).toBe(EXIT_OK);
+    const out = h.stdout.join("\n");
+    const profile = JSON.parse(/"rateProfile": (\[\[.*\]\])/.exec(out)![1]!) as [number, number][];
+    expect(profile).toHaveLength(3);
+    expect(Math.abs(profile[1]![0] - 300)).toBeLessThan(10);
+    expect(Math.abs(profile[2]![0] - 600)).toBeLessThan(10);
+    expect(Math.abs(profile[0]![1] / 8 - 1)).toBeLessThan(0.05);
+    expect(Math.abs(profile[1]![1] / 20 - 1)).toBeLessThan(0.05);
+    expect(Math.abs(profile[2]![1] / 8 - 1)).toBeLessThan(0.05);
+    expect(out).toContain("Dispersion index");
+  });
+
+  it("a model built from those fitted inputs is consistent with what the system measured (exit 0)", async () => {
+    const h = harness(files());
+    expect(await h.call(["calibrate", "model.json", "--observed", "observed.json"])).toBe(EXIT_OK);
+    const out = h.stdout.join("\n");
+    expect(out).toContain("6 match, 0 close, 0 off, 0 missing");
+    expect(out).toContain("consistent with the observations");
+    expect(out).toContain("cannot be detected"); // it says how small an error it could miss
+  });
+
+  it("a model with too few workers is caught (exit 3)", async () => {
+    const wrong = JSON.parse(read("model.json"));
+    wrong.components[2].inputs.capacity = 6;
+    const h = harness({ ...files(), "wrong.json": JSON.stringify(wrong) });
+    expect(await h.call(["calibrate", "wrong.json", "--observed", "observed.json"])).toBe(EXIT_ASSERTION_FAILED);
+    expect(h.stdout.join("\n")).toMatch(/6 off|[4-6] off/);
+    expect(h.stdout.join("\n")).toContain("not consistent with the observations");
+  });
+
+  it("a model whose service times are 30% too slow is caught (exit 3)", async () => {
+    const wrong = JSON.parse(read("model.json"));
+    wrong.components[2].inputs.serviceTime = { dist: "lognormal", mean: 0.455, stdDev: 0.26 };
+    const h = harness({ ...files(), "wrong.json": JSON.stringify(wrong) });
+    expect(await h.call(["calibrate", "wrong.json", "--observed", "observed.json"])).toBe(EXIT_ASSERTION_FAILED);
+  });
+
+  it("even a one-worker error (7 instead of 8) is caught", async () => {
+    const wrong = JSON.parse(read("model.json"));
+    wrong.components[2].inputs.capacity = 7;
+    const h = harness({ ...files(), "wrong.json": JSON.stringify(wrong) });
+    expect(await h.call(["calibrate", "wrong.json", "--observed", "observed.json"])).toBe(EXIT_ASSERTION_FAILED);
+  });
+
+  it("--sensitivity shows how far the results move when the inputs are off, and more traffic means worse results", async () => {
+    const h = harness(files());
+    expect(await h.call(["calibrate", "model.json", "--observed", "observed.json", "--sensitivity", "5", "--replications", "8"])).toBe(EXIT_OK);
+    const out = h.stdout.join("\n");
+    expect(out).toContain("Sensitivity: the arrival rate off by 5% in each direction");
+    expect(out).toContain("Sensitivity: every service time off by 5% in each direction");
+    const row = /^queue\.AverageQueueLength\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/m.exec(out.split("Sensitivity: the arrival rate")[1]!);
+    expect(row).not.toBeNull();
+    const [low, mid, high] = [Number(row![1]), Number(row![2]), Number(row![3])];
+    expect(low).toBeLessThan(mid);
+    expect(mid).toBeLessThan(high);
+  });
+
+  it("calibrate reports mistakes clearly", async () => {
+    const h = harness(files());
+    expect(await h.call(["calibrate", "model.json"])).toBe(EXIT_USAGE);
+    expect(h.stderr.join("\n")).toContain("needs --observed");
+    const h2 = harness({ ...files(), "bad.json": "{not json" });
+    expect(await h2.call(["calibrate", "model.json", "--observed", "bad.json"])).toBe(EXIT_INVALID_MODEL);
+    const h3 = harness({ ...files(), "shape.json": JSON.stringify({ nothing: 1 }) });
+    expect(await h3.call(["calibrate", "model.json", "--observed", "shape.json"])).toBe(EXIT_INVALID_MODEL);
+    expect(h3.stderr.join("\n")).toContain('"metrics"');
+    const h4 = harness({ ...files(), "ids.json": JSON.stringify({ metrics: { "nope.x": 1, "sink.p99": 1 } }) });
+    expect(await h4.call(["calibrate", "model.json", "--observed", "ids.json"])).toBe(EXIT_USAGE);
+    expect(h4.stderr.join("\n")).toContain("nope.x");
+    const h5 = harness({ ...files(), "val.json": JSON.stringify({ metrics: { "sink.p99": "fast" } }) });
+    expect(await h5.call(["calibrate", "model.json", "--observed", "val.json"])).toBe(EXIT_INVALID_MODEL);
+    expect(await h.call(["calibrate", "missing.json", "--observed", "observed.json"])).toBe(EXIT_USAGE);
+  });
+
+  it("fit and fit-arrivals report bad data and bad flags clearly", async () => {
+    const h = harness({ ...files(), "words.csv": "name\nfoo\nbar\n", "few.csv": "v\n1\n2\n3\n", "dates.csv": "timestamp\n2024-01-01T00:00:00Z\n2024-01-01T00:00:00Z\n" });
+    expect(await h.call(["fit", "words.csv"])).toBe(EXIT_USAGE);
+    expect(h.stderr.join("\n")).toContain("no column of numbers");
+    expect(await h.call(["fit", "few.csv"])).toBe(EXIT_USAGE); // too little data for a verdict
+    expect(h.stderr.join("\n")).toContain("at least 8");
+    expect(await h.call(["fit", "service.csv", "--column", "nope"])).toBe(EXIT_USAGE);
+    expect(await h.call(["fit", "service.csv", "--family", "weibull"])).toBe(EXIT_USAGE);
+    expect(await h.call(["fit", "service.csv", "--scale", "-1"])).toBe(EXIT_USAGE);
+    expect(await h.call(["fit", "missing.csv"])).toBe(EXIT_USAGE);
+    expect(await h.call(["fit-arrivals", "arrivals.csv"])).toBe(EXIT_USAGE); // --window is required
+    expect(h.stderr.join("\n")).toContain("--window");
+    expect(await h.call(["fit-arrivals", "dates.csv", "--window", "10"])).toBe(EXIT_USAGE); // zero-length period
+    expect(await h.call(["fit", "service.csv", "--scale", "0.001", "--family", "exponential"])).toBe(EXIT_OK);
+  });
+});

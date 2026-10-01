@@ -36,7 +36,8 @@
     "@chronon-sim/platform": "workspace:*",
     "@chronon-sim/report": "workspace:*",
     "@chronon-sim/importer": "workspace:*",
-    "@chronon-sim/sdk": "workspace:*"
+    "@chronon-sim/sdk": "workspace:*",
+    "@chronon-sim/calibrate": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

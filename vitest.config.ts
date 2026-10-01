@@ -11,6 +11,7 @@ export default defineConfig({
       "@chronon-sim/sdk": src("./packages/sdk/src/index.ts"),
       "@chronon-sim/report": src("./packages/report/src/index.ts"),
       "@chronon-sim/importer": src("./packages/importer/src/index.ts"),
+      "@chronon-sim/calibrate": src("./packages/calibrate/src/index.ts"),
     },
   },
   test: {

@@ -1,0 +1,11 @@
+{
+  "tolerance": 0.15,
+  "metrics": {
+    "sink.mean": 0.4241,
+    "sink.p50": 0.3658,
+    "sink.p95": 0.8969,
+    "sink.p99": 1.215,
+    "server.Utilisation": 0.5341,
+    "queue.AverageQueueLength": 0.8915
+  }
+}

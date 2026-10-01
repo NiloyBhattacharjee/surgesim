@@ -13,6 +13,7 @@ import {
 import type { Clock, FileStore, Logger } from "@chronon-sim/platform";
 import { formatAssertions, formatReport, timeSeriesCsv } from "./report.js";
 import { renderReport } from "@chronon-sim/report";
+import { runCalibrate, runFit, runFitArrivals } from "./calibrate.js";
 import { runCompare, runReport } from "./compare.js";
 import { runImport } from "./import.js";
 import { EXIT_ASSERTION_FAILED, EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE } from "./exit.js";
@@ -36,6 +37,9 @@ const USAGE = `Usage:
   chronon compare <a> <b> --html compare.html                Compare two runs (results files or models)
   chronon import <template.json> [--out model.json] [--rate N] [--service-time MEAN] [--entry ID]...
                             Convert a CloudFormation / CDK template (cdk.out/*.template.json) to a model
+  chronon fit <data.csv> [--column NAME] [--scale K]       Fit a distribution to measured durations
+  chronon fit-arrivals <timestamps.csv> --window S         Fit an arrival rate profile from request timestamps
+  chronon calibrate <model> --observed observed.json       Compare a model with what the real system measured
   chronon compile <model.ts|.js|.json> [--out model.json]   Build a model module to the JSON format
   chronon schema            Print the component schemas as JSON
 
@@ -52,6 +56,12 @@ Options:
   --html FILE         Write a self-contained HTML report (charts, assertions, tables); for report/compare too
   --title TEXT        (report/compare) Override the page title
   --label-a/--label-b (compare) Names for the two sides (default: the file names)
+  --column NAME|N     (fit, fit-arrivals) The column to read, by header name or 0-based index (default: first numeric)
+  --scale K           (fit, fit-arrivals) Multiply every value by K, for example 0.001 to turn milliseconds into seconds
+  --family F          (fit) Only try one family: exponential, lognormal, normal, uniform, triangular, constant
+  --window S          (fit-arrivals) Counting window in seconds; --merge-tolerance F sets how alike windows must be to merge (0.15)
+  --observed FILE     (calibrate) JSON of measured values; --tolerance F accepts that relative error (0.1 = 10%)
+  --sensitivity P     (calibrate) Also show how results move when arrival rates and service times are off by P percent
   --out FILE          (compile, import) Write the JSON model to a file instead of stdout
   --rate N            (import) Requests per second at each entry point (default 10; templates do not say)
   --service-time MEAN (import) Mean service time in seconds, exponential (default 0.2; templates do not say)
@@ -110,6 +120,14 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
         duration: { type: "string" },
         entry: { type: "string", multiple: true },
         name: { type: "string" },
+        column: { type: "string" },
+        scale: { type: "string" },
+        family: { type: "string" },
+        window: { type: "string" },
+        "merge-tolerance": { type: "string" },
+        observed: { type: "string" },
+        tolerance: { type: "string" },
+        sensitivity: { type: "string" },
         title: { type: "string" },
         "label-a": { type: "string" },
         "label-b": { type: "string" },
@@ -177,6 +195,53 @@ ${USAGE}`);
         replications: iReps as number | undefined,
         entry: values.entry ?? [],
       },
+      host,
+    );
+  }
+
+  if (command === "fit" || command === "fit-arrivals" || command === "calibrate") {
+    if (modelPath === undefined || positionals.length > 2) {
+      logger.error(`error: expected "chronon ${command} <file>"
+
+${USAGE}`);
+      return EXIT_USAGE;
+    }
+    const positive = (flag: string, raw: string | undefined, dflt: number | undefined, allowZero = false): number | undefined | "bad" => {
+      if (raw === undefined) return dflt;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || (allowZero ? n < 0 : n <= 0)) {
+        logger.error(`error: --${flag} must be a ${allowZero ? "non-negative" : "positive"} number (got "${raw}")`);
+        return "bad";
+      }
+      return n;
+    };
+    const scale = positive("scale", values.scale, 1);
+    const windowSeconds = positive("window", values.window, undefined);
+    const mergeTolerance = positive("merge-tolerance", values["merge-tolerance"], undefined, true);
+    const tolerance = positive("tolerance", values.tolerance, undefined, true);
+    const sensitivity = positive("sensitivity", values.sensitivity, undefined);
+    for (const v of [scale, windowSeconds, mergeTolerance, tolerance, sensitivity]) if (v === "bad") return EXIT_USAGE;
+    if (command === "fit") {
+      return runFit(modelPath, { column: values.column, scale: scale as number, family: values.family }, host);
+    }
+    if (command === "fit-arrivals") {
+      if (windowSeconds === undefined) {
+        logger.error('error: "chronon fit-arrivals" needs --window <seconds> (how wide the counting windows are, for example 30)');
+        return EXIT_USAGE;
+      }
+      return runFitArrivals(modelPath, { column: values.column, scale: scale as number, window: windowSeconds as number, mergeTolerance: mergeTolerance as number | undefined }, host);
+    }
+    const cSeed = parseIntOption("seed", values.seed, 0);
+    const cReps = parseIntOption("replications", values.replications, 1);
+    for (const v of [cSeed, cReps]) {
+      if (typeof v === "string") {
+        logger.error(`error: ${v}`);
+        return EXIT_USAGE;
+      }
+    }
+    return runCalibrate(
+      modelPath,
+      { observed: values.observed, tolerance: tolerance as number | undefined, seed: typeof cSeed === "number" ? cSeed : undefined, replications: typeof cReps === "number" ? cReps : undefined, sensitivity: sensitivity as number | undefined },
       host,
     );
   }

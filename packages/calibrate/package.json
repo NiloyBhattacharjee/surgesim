@@ -1,0 +1,23 @@
+{
+  "name": "@chronon-sim/calibrate",
+  "version": "0.1.0",
+  "description": "Calibrate Chronon Sim models against real data: fit distributions and arrival rates from measurements, and compare model results with observed metrics. No Node or DOM APIs.",
+  "keywords": ["simulation", "calibration", "distribution-fitting", "capacity-planning"],
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/NiloyBhattacharjee/chronon-sim#readme",
+  "bugs": { "url": "https://github.com/NiloyBhattacharjee/chronon-sim/issues" },
+  "repository": { "type": "git", "url": "git+https://github.com/NiloyBhattacharjee/chronon-sim.git", "directory": "packages/calibrate" },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "dependencies": {
+    "@chronon-sim/engine": "workspace:*"
+  },
+  "publishConfig": { "access": "public" },
+  "scripts": { "prepublishOnly": "tsc -b" }
+}

@@ -6,6 +6,7 @@
     { "path": "packages/sdk" },
     { "path": "packages/report" },
     { "path": "packages/importer" },
+    { "path": "packages/calibrate" },
     { "path": "apps/cli" }
   ]
 }
