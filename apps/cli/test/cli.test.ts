@@ -56,7 +56,7 @@ describe("example models run end to end", () => {
       expect(results.settings.replications).toBe(2);
       expect(results.outputs.length).toBeGreaterThan(0);
       const csv = h.fs.files.get("out/ts.csv")!;
-      expect(csv.split("\n")[0]).toMatch(/^replication,time_s,.*QueueLength/);
+      expect(csv.split("\n")[0]).toMatch(/^replication,time_s,\S+\.\S+/);
       expect(csv.split("\n").length).toBeGreaterThan(10);
     });
   }
@@ -110,6 +110,15 @@ describe("error handling", () => {
     const h = harness();
     expect(await h.call(["schema"])).toBe(EXIT_OK);
     const schemas = JSON.parse(h.stdout.join(""));
-    expect(schemas.map((s: { type: string }) => s.type)).toEqual(["EntityGenerator", "Queue", "Server", "EntitySink"]);
+    expect(schemas.map((s: { type: string }) => s.type)).toEqual([
+      "EntityGenerator",
+      "Queue",
+      "Server",
+      "EntitySink",
+      "MessageQueue",
+      "WorkerPool",
+      "RetryPolicy",
+      "RateLimiter",
+    ]);
   });
 });

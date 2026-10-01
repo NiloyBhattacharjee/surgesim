@@ -1,7 +1,11 @@
 export { EntityGenerator } from "./generator.js";
 export { Queue } from "./queue.js";
-export type { QueueWaiter } from "./queue.js";
+export { MessageQueue } from "./message-queue.js";
+export type { Lease, PullSource, QueueWaiter } from "./pullable.js";
 export { Server } from "./server.js";
+export { WorkerPool } from "./worker-pool.js";
+export { RetryPolicy } from "./retry-policy.js";
+export { RateLimiter } from "./rate-limiter.js";
 export { EntitySink } from "./sink.js";
 export { ComponentRegistry, createDefaultRegistry } from "./registry.js";
 export type { ComponentClass } from "./registry.js";

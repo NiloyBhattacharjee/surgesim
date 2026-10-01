@@ -1,21 +1,18 @@
 import { FifoBuffer, LinkedComponent, type ComponentInit, type MovingEntity, type SimContext } from "../model/index.js";
 import { Tally, TimeWeightedStat } from "../stats/index.js";
 import type { ComponentSchema } from "../schema/index.js";
-
-/** Something that wants to be told when a queue has entities available. */
-export interface QueueWaiter {
-  queueHasEntity(): void;
-}
+import type { Lease, PullSource, QueueWaiter } from "./pullable.js";
 
 /**
  * FIFO queue with an optional maximum length. Arrivals beyond `maxLength` are dropped and counted.
  * Servers pull entities with {@link Queue.poll}; waiting servers are notified on arrival.
+ * WorkerPools pull through the {@link PullSource} interface.
  */
-export class Queue extends LinkedComponent {
+export class Queue extends LinkedComponent implements PullSource {
   static readonly schema: ComponentSchema<Queue> = {
     type: "Queue",
     description: "FIFO queue with an optional capacity. Arrivals beyond maxLength are dropped and counted.",
-    roles: ["receiver", "queue"],
+    roles: ["receiver", "queue", "pullable"],
     inputs: [
       { key: "maxLength", type: "integer", unit: "dimensionless", min: 1, required: false, description: "Maximum number of waiting entities. Unlimited if omitted." },
     ],
@@ -78,6 +75,14 @@ export class Queue extends LinkedComponent {
     this.lengthChanged();
     this.noteCompleted();
     return item.entity;
+  }
+
+  /** A plain queue never takes entities back: a received entity is gone, and `ack` always succeeds. */
+  readonly redeliversUnacked = false;
+
+  receive(): Lease | null {
+    const entity = this.poll();
+    return entity === null ? null : { entity, ack: () => true };
   }
 
   private lengthChanged(): void {

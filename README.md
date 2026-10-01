@@ -9,8 +9,9 @@ traffic, queues and worker pools in JSON (a TypeScript SDK is coming), run the m
 Think CDK for capacity planning: models live in your repo, runs are deterministic and seeded, and
 (in a later phase) capacity thresholds can be enforced in CI.
 
-This is **phase 1**: the domain-neutral headless engine, generic components, the JSON model format
-and the CLI. Cloud-specific components and the TypeScript SDK come next (see below).
+This is **phase 2**: the domain-neutral headless engine, generic components, the JSON model format
+and the CLI (phase 1), plus the first cloud components: `MessageQueue`, `WorkerPool`, `RetryPolicy`
+and `RateLimiter`. The TypeScript SDK and CI threshold assertions come next (see below).
 
 ## Acknowledgement
 
@@ -54,6 +55,9 @@ Exit codes: `0` ok, `1` invalid model / malformed JSON, `2` usage or I/O error.
 | [`examples/mm1.json`](examples/mm1.json) | M/M/1, λ=0.8, μ=1 — matches queueing theory |
 | [`examples/mmc.json`](examples/mmc.json) | M/M/5, λ=4, μ=1 |
 | [`examples/traffic-spike.json`](examples/traffic-spike.json) | 50/s → 250/s for 2 min into 100 workers with lognormal service (mean 0.5 s): the backlog climbs to ~6,000 during the spike and drains afterwards (see the CSV time series) |
+| [`examples/sqs-dlq.json`](examples/sqs-dlq.json) | SQS visibility timeout (10 s) shorter than processing time (mean 12 s): redeliveries, duplicate processing and a dead-letter queue. With a 60 s timeout utilisation drops to the expected 2 × 12 / 40 = 0.6 |
+| [`examples/serverless-cold-start.json`](examples/serverless-cold-start.json) | Function with a concurrency limit, cold starts and idle reclaim; a 5x spike throttles calls that retry with jittered backoff |
+| [`examples/retry-storm.json`](examples/retry-storm.json) | A flaky, nearly-saturated dependency with immediate retries amplifies its own load (see `RetryAmplification`) |
 
 ## Architecture
 
@@ -72,7 +76,7 @@ can also run in a Web Worker. Inside the engine, each layer depends only on thos
 | 2 | `rng` | Own xoshiro128** PRNG; independent streams from `(seed, streamId)`; constant/uniform/exponential/normal/triangular/lognormal behind `SampleProvider` |
 | 3 | `schema` | Pure-data component schemas (inputs, links, outputs, unit categories) and structured `ValidationError`s |
 | 4 | `model` | `Entity` → `StateEntity` → `LinkedComponent`; lightweight moving entities |
-| 5 | `components` | `EntityGenerator`, `Queue`, `Server`, `EntitySink` as callback state machines on `kernel.schedule` |
+| 5 | `components` | `EntityGenerator`, `Queue`, `Server`, `EntitySink` plus the cloud components `MessageQueue`, `WorkerPool`, `RetryPolicy`, `RateLimiter`, all callback state machines on `kernel.schedule` |
 | 6 | `stats`, `run` | Time-weighted averages, pluggable percentile tracker, warm-up, replications, t-based 95% CIs, time series, JSON-serialisable results |
 | 7 | `format` | The JSON model loader (validates everything, returns all errors at once) |
 
@@ -99,6 +103,11 @@ replicated simulations and asserts that the 95% confidence intervals contain the
 - **M/M/1** (λ=0.8, μ=1): utilisation 0.8, Lq 3.2, Wq 4.0, W 5.0; time in system is Exp(0.2), so
   p50 ≈ 3.466, p95 ≈ 14.979, p99 ≈ 23.026 (checked within a relative tolerance).
 - **M/M/c** (λ=4, μ=1, c=5): utilisation 0.8, Lq ≈ 2.2165, Wq ≈ 0.5541, W ≈ 1.5541.
+- **M/M/c/c loss system** (λ=4, μ=1, c=5): a `WorkerPool` with no queue throttles a fraction equal to the
+  **Erlang-B** blocking probability B ≈ 0.19907, and its utilisation is the carried load a(1−B)/c.
+- **Hand-calculable cloud timelines**: visibility-timeout redelivery and dead-lettering, backoff delays
+  (1, 2, 4 s) and their jitter means (0.5 and 0.75 of the cap), cold-start counts, and token-bucket
+  throughput (exactly 500 allowed of 1,000 offered at 5/s over 100 s).
 
 Other tests cover kernel ordering/LIFO/cancellation/conditional events, hand-calculated
 time-weighted averages, rate-profile counts per segment, queue drop accounting, determinism and
@@ -117,11 +126,9 @@ pnpm typecheck   # type-checks sources and tests
 
 ## Next steps
 
-**Phase 2 — cloud components and authoring**
-- `MessageQueue` (SQS-style visibility timeout, `maxReceiveCount`, dead-letter queue)
-- `WorkerPool` (concurrency limit, cold starts, throttling)
-- `RetryPolicy` (exponential backoff with jitter)
-- `RateLimiter` (token bucket)
+**Phase 2 (done): cloud components.** `MessageQueue`, `WorkerPool`, `RetryPolicy`, `RateLimiter`.
+
+**Phase 2b — authoring and CI**
 - `Autoscaler`
 - Per-run cost estimates
 - A TypeScript model SDK that compiles to the JSON format

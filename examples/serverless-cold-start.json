@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "name": "Serverless function: traffic spike, cold starts and throttling",
+  "description": "A function with a concurrency limit of 60, 1.5 s cold starts and a 60 s idle timeout. A 5x spike at t=120 exhausts concurrency; throttled calls are retried with exponential backoff and full jitter.",
+  "settings": {
+    "duration": 480,
+    "warmUp": 0,
+    "seed": 3,
+    "replications": 5,
+    "timeSeries": { "interval": 5, "outputs": ["fn.BusyWorkers", "retry.Retrying"] }
+  },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "traffic",
+      "inputs": { "mode": "rateProfile", "rateProfile": [[0, 40], [120, 200], [240, 40]] },
+      "links": { "next": "retry" }
+    },
+    {
+      "type": "RetryPolicy",
+      "name": "retry",
+      "inputs": { "maxAttempts": 4, "baseDelay": 0.25, "multiplier": 2, "maxDelay": 4, "jitter": "full" },
+      "links": { "next": "fn", "giveUp": "failed" }
+    },
+    {
+      "type": "WorkerPool",
+      "name": "fn",
+      "inputs": {
+        "concurrency": 60,
+        "serviceTime": { "dist": "lognormal", "mean": 0.3, "stdDev": 0.15 },
+        "coldStartTime": { "dist": "lognormal", "mean": 1.5, "stdDev": 0.5 },
+        "idleTimeout": 60,
+        "initialWarm": 10
+      },
+      "links": { "next": "ok", "onThrottle": "retry" }
+    },
+    { "type": "EntitySink", "name": "ok" },
+    { "type": "EntitySink", "name": "failed" }
+  ]
+}

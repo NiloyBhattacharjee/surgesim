@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "name": "SQS visibility timeout shorter than processing time",
+  "description": "Workers take ~12 s on average but the visibility timeout is 10 s, so many messages are redelivered and processed twice; some reach maxReceiveCount and land in the dead-letter queue. Raise visibilityTimeout to 60 to see the problem vanish.",
+  "settings": {
+    "duration": 1800,
+    "warmUp": 120,
+    "seed": 11,
+    "replications": 5,
+    "timeSeries": { "interval": 10, "outputs": ["orders.Backlog", "orders.InFlight", "dlq.count"] }
+  },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "traffic",
+      "inputs": { "mode": "rateProfile", "rateProfile": [[0, 2]] },
+      "links": { "next": "orders" }
+    },
+    {
+      "type": "MessageQueue",
+      "name": "orders",
+      "inputs": { "visibilityTimeout": 10, "maxReceiveCount": 3 },
+      "links": { "deadLetter": "dlq" }
+    },
+    {
+      "type": "WorkerPool",
+      "name": "workers",
+      "inputs": { "concurrency": 40, "serviceTime": { "dist": "lognormal", "mean": 12, "stdDev": 6 } },
+      "links": { "queue": "orders", "next": "done" }
+    },
+    { "type": "EntitySink", "name": "done" },
+    { "type": "EntitySink", "name": "dlq" }
+  ]
+}

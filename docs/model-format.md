@@ -73,7 +73,7 @@ A `sampler` input accepts either a number (a constant) or a distribution object:
 | `{"dist":"triangular","min":a,"mode":c,"max":b}` | `min ≤ mode ≤ max` |
 | `{"dist":"lognormal","mean":m,"stdDev":s}` | `mean > 0`, `stdDev ≥ 0`; mean/stdDev are of the lognormal variable itself, not of its logarithm |
 
-## Component types (phase 1)
+## Component types (phase 1: generic components)
 
 `chronon schema` prints these schemas as machine-readable JSON; it is the source of truth.
 
@@ -88,7 +88,7 @@ A `sampler` input accepts either a number (a constant) or a distribution object:
 
 Link: `next` (role `receiver`, optional). Outputs: `NumberGenerated`.
 
-### `Queue` — roles `receiver`, `queue`
+### `Queue` — roles `receiver`, `queue`, `pullable`
 Input `maxLength` (integer ≥ 1, default unlimited): arrivals beyond it are dropped and counted.
 Outputs: `QueueLength`, `AverageQueueLength` (time-weighted), `MaxQueueLength`, `AverageQueueTime` (s), `NumberDropped`.
 
@@ -99,6 +99,89 @@ Outputs: `Utilisation` (time-weighted busy workers / capacity), `AverageBusyWork
 
 ### `EntitySink` — role `receiver`
 No inputs. Records each entity's time in system. Outputs: `count`, `mean`, `p50`, `p95`, `p99` (seconds).
+
+
+## Component types (phase 2: cloud components)
+
+These compose with the phase 1 components through the same `links`. Entities flow downstream through
+`next`; the extra links below route *rejected*, *failed* and *dead* entities, which is how
+retries and dead-letter queues are wired. Cycles are allowed (a `WorkerPool` may point `onThrottle` at the
+`RetryPolicy` that feeds it).
+
+### `MessageQueue` — roles `receiver`, `pullable`
+SQS-style queue. A consumer *receives* a message, hiding it for `visibilityTimeout`; if it is not
+acknowledged in time the message becomes visible again (a redelivery). Once a message has been received
+`maxReceiveCount` times and its visibility timeout expires again, it is dead-lettered.
+
+| Input | Type | Default | |
+|---|---|---|---|
+| `visibilityTimeout` | number > 0 (s) | `30` | Seconds a received message stays hidden. |
+| `maxReceiveCount` | integer ≥ 1 | unlimited | Receives before dead-lettering. |
+
+Link: `deadLetter` (role `receiver`, optional; without it exhausted messages are discarded and counted).
+Outputs: `QueueLength` (visible), `InFlight`, `Backlog` (visible + in flight), `AverageQueueLength`,
+`MaxQueueLength`, `AverageInFlight`, `AverageQueueTime`, `NumberReceived`, `NumberRedelivered`, `NumberDeadLettered`.
+
+A consumer that is still working when the timeout expires is **not** interrupted: it finishes, its
+acknowledgement is stale, and the redelivered copy may be processed again (duplicate processing).
+
+### `WorkerPool`
+Up to `concurrency` workers. **Pull mode**: set `queue` to a `Queue` or `MessageQueue`. **Push mode**:
+omit `queue` and send entities to the pool; when every worker is busy the entity is *throttled*.
+
+| Input | Type | Default | |
+|---|---|---|---|
+| `concurrency` | integer ≥ 1 | **required** | Maximum workers busy at once (cold-starting ones count). |
+| `serviceTime` | sampler (s) | **required** | Service time per entity. |
+| `coldStartTime` | sampler (s) | `0` | Extra time when a request must start a new instance. |
+| `idleTimeout` | number ≥ 0 (s) | never | An idle instance goes cold after this long. The most recently used instance is reused first. |
+| `initialWarm` | integer ≥ 0 | `0` | Instances warm at time 0 (capped at `concurrency`). |
+| `failureProbability` | number in [0, 1] | `0` | Chance an entity fails after its service time. |
+
+Links: `queue` (role `pullable`), `next`, `onFailure`, `onThrottle` (role `receiver`, all optional).
+Failures: with `onFailure` the entity goes there and is acknowledged; otherwise a `MessageQueue` source
+redelivers it after the visibility timeout and anything else loses it (counted in `NumberFailed`).
+Throttled entities go to `onThrottle` or are dropped (counted).
+Outputs: `Utilisation`, `AverageBusyWorkers`, `BusyWorkers`, `ColdStarts`, `NumberSucceeded`, `NumberFailed`,
+`NumberThrottled`, `ThrottleFraction` (throttled / pushed), `StaleAcks`.
+
+A pool without a queue and without cold starts is an M/M/c/c loss system, whose blocking probability is
+the Erlang-B formula; the test suite checks this.
+
+### `RetryPolicy` — role `receiver`
+Retries failed attempts with exponential backoff and jitter. Send entities in; point `next` at the thing
+that can fail; point that thing's `onFailure` / `onThrottle` back at the `RetryPolicy`. A first-time
+entity is forwarded immediately; one that returns is a failed attempt and is retried after a delay until
+`maxAttempts` attempts have been made, then sent to `giveUp`.
+
+| Input | Type | Default | |
+|---|---|---|---|
+| `maxAttempts` | integer ≥ 1 | `3` | Total attempts, including the first. |
+| `baseDelay` | number ≥ 0 (s) | `0.1` | Delay before the first retry. |
+| `multiplier` | number ≥ 1 | `2` | Growth factor per retry. |
+| `maxDelay` | number ≥ 0 (s) | uncapped | Cap applied before jitter. |
+| `jitter` | `"none"` \| `"full"` \| `"equal"` | `"full"` | `none`: d. `full`: uniform on [0, d]. `equal`: uniform on [d/2, d]. |
+
+The delay before retry *n* is `d = min(maxDelay, baseDelay × multiplier^(n−1))`. The attempt count is stored
+on the entity, so an entity should pass through a given `RetryPolicy` only once.
+Links: `next` (**required**), `giveUp` (optional). Outputs: `NumberRequests`, `NumberAttempts`,
+`NumberRetries`, `NumberGivenUp`, `RetryAmplification` (attempts per request), `Retrying` (current).
+
+### `RateLimiter` — role `receiver`
+Token bucket. Starts full with `burst` tokens, refills at `rate` per second up to `burst`; each entity
+takes one token, otherwise it is rejected.
+
+| Input | Type | |
+|---|---|---|
+| `rate` | number ≥ 0 (per s), **required** | Sustained allowed rate. |
+| `burst` | number ≥ 1, **required** | Bucket size. |
+
+Links: `next`, `onReject` (role `receiver`, optional; rejected entities are dropped and counted without it).
+Outputs: `NumberAllowed`, `NumberRejected`, `RejectionFraction`, `Tokens` (current).
+
+### Roles
+`Queue` has roles `receiver`, `queue`, `pullable`; `MessageQueue` has `receiver`, `pullable`. `Server.queue`
+needs role `queue` (so a plain `Queue`); `WorkerPool.queue` needs `pullable` (either).
 
 ## Results
 

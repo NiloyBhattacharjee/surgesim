@@ -1,9 +1,13 @@
 import type { ComponentInit, LinkedComponent, SimContext } from "../model/index.js";
 import type { ComponentSchema } from "../schema/index.js";
 import { EntityGenerator } from "./generator.js";
+import { MessageQueue } from "./message-queue.js";
 import { Queue } from "./queue.js";
+import { RateLimiter } from "./rate-limiter.js";
+import { RetryPolicy } from "./retry-policy.js";
 import { Server } from "./server.js";
 import { EntitySink } from "./sink.js";
+import { WorkerPool } from "./worker-pool.js";
 
 /** A component class: a static schema plus a constructor. */
 export interface ComponentClass {
@@ -35,7 +39,15 @@ export class ComponentRegistry {
   }
 }
 
-/** A registry containing the phase 1 generic components. */
+/** A registry containing every built-in component: the generic ones and the cloud ones. */
 export function createDefaultRegistry(): ComponentRegistry {
-  return new ComponentRegistry().register(EntityGenerator).register(Queue).register(Server).register(EntitySink);
+  return new ComponentRegistry()
+    .register(EntityGenerator)
+    .register(Queue)
+    .register(Server)
+    .register(EntitySink)
+    .register(MessageQueue)
+    .register(WorkerPool)
+    .register(RetryPolicy)
+    .register(RateLimiter);
 }

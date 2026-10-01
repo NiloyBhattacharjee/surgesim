@@ -3,7 +3,8 @@ import { LinkedComponent, type ComponentInit, type MovingEntity, type SimContext
 import { TimeWeightedStat } from "../stats/index.js";
 import { asSampler, type ComponentSchema } from "../schema/index.js";
 import type { SampleProvider } from "../rng/index.js";
-import type { Queue, QueueWaiter } from "./queue.js";
+import type { QueueWaiter } from "./pullable.js";
+import type { Queue } from "./queue.js";
 
 /**
  * A pool of `capacity` parallel workers pulling from a Queue. A worker that starts an entity

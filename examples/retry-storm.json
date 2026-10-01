@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "name": "Retry storm: a flaky dependency amplifies its own load",
+  "description": "Offered load is 18/s against 10 workers at 0.5 s each (90% utilisation), and the dependency fails 30% of calls. Failures and throttled calls are retried immediately, so the effective load exceeds capacity and the system overloads: see retry.RetryAmplification (about 2.6) and pool.NumberThrottled. Jittered backoff only delays this (it does not fix a capacity shortfall); raising concurrency to 16 cuts amplification to about 1.7.",
+  "settings": { "duration": 600, "warmUp": 30, "seed": 21, "replications": 5, "timeSeries": { "interval": 5, "outputs": ["pool.BusyWorkers", "retry.Retrying"] } },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "traffic",
+      "inputs": { "mode": "rateProfile", "rateProfile": [[0, 18]] },
+      "links": { "next": "limiter" }
+    },
+    {
+      "type": "RateLimiter",
+      "name": "limiter",
+      "inputs": { "rate": 40, "burst": 40 },
+      "links": { "next": "retry" }
+    },
+    {
+      "type": "RetryPolicy",
+      "name": "retry",
+      "inputs": { "maxAttempts": 5, "baseDelay": 0, "multiplier": 1, "jitter": "none" },
+      "links": { "next": "pool", "giveUp": "failed" }
+    },
+    {
+      "type": "WorkerPool",
+      "name": "pool",
+      "inputs": { "concurrency": 10, "serviceTime": { "dist": "exponential", "mean": 0.5 }, "failureProbability": 0.3 },
+      "links": { "next": "ok", "onFailure": "retry", "onThrottle": "retry" }
+    },
+    { "type": "EntitySink", "name": "ok" },
+    { "type": "EntitySink", "name": "failed" }
+  ]
+}
