@@ -16,5 +16,5 @@
       "@chronon-sim/calibrate": ["./packages/calibrate/src/index.ts"]
     }
   },
-  "include": ["packages/*/src", "packages/*/test", "apps/*/src", "apps/*/test", "vitest.config.ts"]
+  "include": ["packages/*/src", "packages/*/test", "apps/*/src", "apps/*/test", "scripts/test", "vitest.config.ts"]
 }

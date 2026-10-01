@@ -15,7 +15,9 @@
     "chronon": "node apps/cli/dist/bin.js",
     "demo:build": "pnpm --filter @chronon-sim/demo build",
     "demo": "pnpm --filter @chronon-sim/demo start",
-    "test:py": "python -m unittest discover -s sdks/python/tests"
+    "test:py": "python -m unittest discover -s sdks/python/tests",
+    "release:version": "node scripts/set-version.mjs",
+    "release:check": "node scripts/check-release.mjs"
   },
   "devDependencies": {
     "@chronon-sim/cli": "workspace:*",

@@ -1,0 +1,138 @@
+name: Release
+
+# Publishes every package to npm when a version tag is pushed:
+#   pnpm release:version 0.1.1 && git commit -am "Release v0.1.1" && git tag v0.1.1 && git push origin main v0.1.1
+# See docs/releasing.md. You can also run it by hand (Actions tab, "Run workflow") as a rehearsal that does
+# everything except publish.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Rehearsal: run every check and a publish dry run, but publish nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write # to create the GitHub release
+
+# Never run two releases at once, and never cancel one half way through.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Test, publish and announce
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the "is this tag on main" check needs history
+
+      - name: Decide what this run is
+        id: plan
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+            dry=false
+          else
+            if [ "${{ inputs.dry_run }}" != "true" ]; then
+              echo "::error::A real release must come from a version tag. Push a tag like v0.1.1, or run this with dry_run on."
+              exit 1
+            fi
+            # A rehearsal uses the version the packages are at now.
+            tag="v$(node -p "require('./apps/cli/package.json').version")"
+            dry=true
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "dry=$dry" >> "$GITHUB_OUTPUT"
+          echo "Release $tag (dry run: $dry)"
+
+      - name: The tagged commit must be on main
+        if: steps.plan.outputs.dry == 'false'
+        shell: bash
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag ${{ steps.plan.outputs.tag }} is not on main. Merge the release commit to main first, then tag it."
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install simpy==4.1.2
+      - run: pnpm install --frozen-lockfile
+
+      - name: Every package must match the tag
+        id: check
+        run: node scripts/check-release.mjs "${{ steps.plan.outputs.tag }}"
+
+      # The release is built and tested from scratch, exactly as it will ship.
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test
+
+      - name: The npm token must be configured
+        if: steps.plan.outputs.dry == 'false'
+        shell: bash
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::error::The NPM_TOKEN secret is not set. See docs/releasing.md, 'One-time setup'."
+            exit 1
+          fi
+
+      # pnpm skips any package whose version is already on npm, so re-running a release that stopped half way
+      # publishes only what is missing instead of failing.
+      - name: Publish to npm
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          flags="--access public --no-git-checks --tag ${{ steps.check.outputs.npm_tag }}"
+          if [ "${{ steps.plan.outputs.dry }}" = "true" ]; then flags="$flags --dry-run"; fi
+          pnpm -r publish $flags
+
+      - name: Confirm every package is on npm
+        if: steps.plan.outputs.dry == 'false'
+        shell: bash
+        run: |
+          version="${{ steps.check.outputs.version }}"
+          missing=0
+          for pkg in platform engine sdk report importer calibrate cli; do
+            found=""
+            for attempt in 1 2 3 4 5 6; do
+              found=$(npm view "@chronon-sim/$pkg@$version" version 2>/dev/null || true)
+              [ "$found" = "$version" ] && break
+              sleep 10
+            done
+            if [ "$found" = "$version" ]; then echo "ok   @chronon-sim/$pkg@$version"; else echo "::error::@chronon-sim/$pkg@$version is not on npm"; missing=1; fi
+          done
+          exit $missing
+
+      - name: Create the GitHub release
+        if: steps.plan.outputs.dry == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.plan.outputs.tag }}"
+          extra=""
+          if [ "${{ steps.check.outputs.npm_tag }}" = "next" ]; then extra="--prerelease"; fi
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "A release for $tag already exists; leaving it alone."
+          else
+            gh release create "$tag" --verify-tag --generate-notes --title "$tag" $extra
+          fi
