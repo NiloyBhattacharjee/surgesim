@@ -52,14 +52,29 @@ TypeScript implementation; no JaamSim code is ported.
 
 ## Quick start
 
+Needs Node 20+ (TypeScript model files need Node 22.18+, or compile them to `.js` first).
+
+**Use it** (nothing to clone or build): the packages are on npm under the `@chronon-sim` scope.
+
+```bash
+npx @chronon-sim/cli run model.json --html report.html      # run without installing
+npm install -g @chronon-sim/cli                             # or install once to get a plain `chronon` command
+chronon run model.json --html report.html
+```
+
+The bare name `chronon` on npm belongs to an unrelated package, which is why the published name is
+`@chronon-sim/cli`. The installed command is still called `chronon`. For models written in TypeScript, install the SDK
+next to them: `npm install @chronon-sim/sdk`.
+
+**Work on it** (clone the repository; this also needs pnpm):
+
 ```bash
 pnpm install
 pnpm build
 pnpm exec chronon run examples/autoscaled-service.json --html out/report.html
 ```
 
-Requires Node 20+ and pnpm (TypeScript model files need Node 22.18+, or compile to `.js` first). `pnpm exec chronon`
-runs the workspace binary; publishing to npm is not done yet, so `npx chronon` does not work today.
+`pnpm exec chronon` runs the workspace build. The commands below are shown as `chronon ...`; use whichever form fits.
 
 ```
 chronon run <model> [--seed N] [--replications N] [--assert EXPR]... [--html report.html] [--timeseries out.csv] [--json out.json]
@@ -260,6 +275,7 @@ pnpm demo          # build and serve the browser demo (pnpm demo:build writes ap
 | [docs/browser-demo.md](docs/browser-demo.md) | the browser demo and how embeddability is proven |
 | [docs/calibration.md](docs/calibration.md) | fitting inputs from measurements, comparing with observations, and what the validation showed |
 | [docs/testing.md](docs/testing.md) | the test layers, property-based tests, CI, and how to reproduce a failure |
+| [docs/releasing.md](docs/releasing.md) | how a version tag publishes every package to npm |
 
 ## Limits and next steps
 
@@ -269,8 +285,8 @@ calibrate them against real metrics before trusting a conclusion.
 
 Not built yet:
 
-- Publishing: nothing is on npm or PyPI, so `npx chronon` does not work. The packages are prepared and a publishing
-  dry run passes, but publishing needs your npm account.
+- PyPI: the Python SDK is not published yet (the npm packages are, and releases are automated; see
+  [docs/releasing.md](docs/releasing.md)).
 - Real-data calibration: the fitting and comparison tools exist but have only been exercised on synthetic data.
 - CI: the workflows exist (Node 20 and 22 on Linux, macOS and Windows; Python 3.9 to 3.13) but their macOS and Linux
   cells only run on GitHub, so they had not been observed when this was written.
