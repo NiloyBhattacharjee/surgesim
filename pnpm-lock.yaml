@@ -42,6 +42,19 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sdk
 
+  apps/demo:
+    dependencies:
+      '@chronon-sim/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@chronon-sim/report':
+        specifier: workspace:*
+        version: link:../../packages/report
+    devDependencies:
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+
   packages/engine: {}
 
   packages/importer:

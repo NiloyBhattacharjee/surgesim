@@ -5,6 +5,7 @@
     "declaration": false,
     "declarationMap": false,
     "noEmit": true,
+    "resolveJsonModule": true,
     "types": ["node"],
     "paths": {
       "@chronon-sim/engine": ["./packages/engine/src/index.ts"],
