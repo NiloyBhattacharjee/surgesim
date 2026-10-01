@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      # No "version:" here on purpose: it is read from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      # Python lets the cross-language tests (TypeScript SDK vs Python SDK) run instead of being skipped.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test
+      - name: Smoke-test the built command line
+        run: node apps/cli/dist/bin.js run examples/mm1.json --replications 2
+
+  python-sdk:
+    name: Python ${{ matrix.python }} SDK
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s sdks/python/tests -v
+
+  capacity-gate:
+    name: Capacity gates behave (exit codes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: A satisfied model passes (exit 0)
+        run: node apps/cli/dist/bin.js run examples/autoscaled-service.json
+      - name: A violated limit fails the job (exit 3)
+        shell: bash
+        run: |
+          set +e
+          node apps/cli/dist/bin.js run examples/autoscaled-service.json --assert "done.p99<=5"
+          code=$?
+          echo "exit code: $code"
+          test "$code" -eq 3
+      - name: An invalid model is rejected (exit 1)
+        shell: bash
+        run: |
+          set +e
+          echo '{"version":1,"settings":{},"components":[]}' > bad.json
+          node apps/cli/dist/bin.js run bad.json
+          code=$?
+          echo "exit code: $code"
+          test "$code" -eq 1
+
+  package:
+    name: Packages install and run (npm pack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Dry run of publishing (publishes nothing)
+        run: pnpm -r publish --dry-run --no-git-checks
+      - name: Pack every package, install the tarballs into an empty project, and use the CLI
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tarballs" "$RUNNER_TEMP/consumer"
+          for p in packages/platform packages/engine packages/sdk packages/report packages/importer apps/cli; do
+            (cd "$p" && pnpm pack --pack-destination "$RUNNER_TEMP/tarballs")
+          done
+          cd "$RUNNER_TEMP/consumer"
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "$RUNNER_TEMP"/tarballs/*.tgz
+          cp "$GITHUB_WORKSPACE/examples/autoscaled-service.json" .
+          npx chronon run autoscaled-service.json --html report.html
+          test -s report.html

@@ -1,0 +1,37 @@
+name: Fuzz
+
+# Weekly deep search for crashes and hangs: the property-based tests with many more random inputs than the
+# normal suite and a different seed each time. A failure prints the seed, so it can be reproduced with
+#   FC_SEED=<seed> FC_RUNS=5000 FC_MUTATION_RUNS=50000 pnpm vitest run packages/engine/test/properties.test.ts
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Seed (leave empty for a random one)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  properties:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Property tests with a large budget
+        env:
+          FC_SEED: ${{ inputs.seed || github.run_id }}
+          FC_RUNS: "5000"
+          FC_MUTATION_RUNS: "50000"
+        run: |
+          echo "seed: $FC_SEED"
+          pnpm vitest run packages/engine/test/properties.test.ts
