@@ -1,7 +1,8 @@
 import { createDefaultRegistry, type ComponentRegistry } from "../components/index.js";
-import type { ModelDefinition, TimeSeriesConfig } from "../format/index.js";
+import type { AssertionDefinition, ModelDefinition, TimeSeriesConfig } from "../format/index.js";
 import { deriveSeed } from "../rng/index.js";
 import { summarize } from "../stats/index.js";
+import { evaluateAssertions } from "./assertions.js";
 import type { OutputSummary, RunResults, TimeSeriesReplication } from "./results.js";
 import { Simulation } from "./simulation.js";
 
@@ -11,6 +12,8 @@ export interface RunOptions {
   replications?: number;
   /** Sample these outputs over time, overriding the model's `timeSeries` setting. */
   timeSeries?: TimeSeriesConfig;
+  /** Extra assertions to check in addition to the model's own. */
+  assertions?: AssertionDefinition[];
   registry?: ComponentRegistry;
 }
 
@@ -74,7 +77,7 @@ export function runModel(model: ModelDefinition, options: RunOptions = {}): RunR
   }
 
   const { duration, warmUp, ticksPerSecond } = model.settings;
-  return {
+  const results: RunResults = {
     resultsVersion: 1,
     modelName: model.name ?? null,
     settings: { duration, warmUp, seed, replications, ticksPerSecond },
@@ -82,4 +85,7 @@ export function runModel(model: ModelDefinition, options: RunOptions = {}): RunR
     replications: reps,
     ...(tsConfig ? { timeSeries: { interval: tsConfig.interval, outputs: tsConfig.outputs, replications: series } } : {}),
   };
+  const assertions = [...(model.assertions ?? []), ...(options.assertions ?? [])];
+  if (assertions.length > 0) results.assertions = evaluateAssertions(results, assertions);
+  return results;
 }

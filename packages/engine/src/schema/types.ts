@@ -1,8 +1,9 @@
 /**
- * Unit categories (phase 1). All time quantities in the JSON format are seconds and all rates
- * are per second, regardless of the model's tick resolution.
+ * Unit categories. All time quantities in the JSON format are seconds and all rates are per second,
+ * regardless of the model's tick resolution. `cost` is an abstract currency amount (whatever unit
+ * the model's prices use).
  */
-export type UnitCategory = "time" | "rate" | "dimensionless";
+export type UnitCategory = "time" | "rate" | "cost" | "dimensionless";
 
 /** The kinds of values a component input can take. */
 export type InputType =

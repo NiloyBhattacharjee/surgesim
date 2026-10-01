@@ -40,6 +40,33 @@ export interface ComponentDefinition {
   stream?: string;
 }
 
+/** Comparison operators an assertion can use. */
+export const ASSERTION_OPS = ["<", "<=", ">", ">=", "=="] as const;
+export type AssertionOp = (typeof ASSERTION_OPS)[number];
+
+/**
+ * Which number of an output an assertion compares.
+ * - `mean`: the mean across replications (default).
+ * - `ci95High` / `ci95Low`: the ends of the 95% confidence interval (needs 2+ replications); use
+ *   `ci95High` with `<=` to demand a limit holds even at the pessimistic end of the estimate.
+ * - `min` / `max`: the smallest / largest value over replications (a worst-case gate).
+ */
+export const ASSERTION_STATISTICS = ["mean", "ci95Low", "ci95High", "min", "max"] as const;
+export type AssertionStatistic = (typeof ASSERTION_STATISTICS)[number];
+
+/** A capacity threshold checked after a run, e.g. "sink.p99 <= 2". */
+export interface AssertionDefinition {
+  /** Output id "<componentName>.<OutputKey>". */
+  output: string;
+  op: AssertionOp;
+  /** Threshold, in the output's own unit (seconds, per-second, cost, count...). */
+  value: number;
+  /** Default "mean". */
+  statistic?: AssertionStatistic;
+  /** Optional human-readable label shown in reports. */
+  name?: string;
+}
+
 /** A validated model. */
 export interface ModelDefinition {
   version: number;
@@ -47,4 +74,6 @@ export interface ModelDefinition {
   description?: string;
   settings: ModelSettings;
   components: ComponentDefinition[];
+  /** Thresholds checked after the run; the CLI exits non-zero if any fail. */
+  assertions?: AssertionDefinition[];
 }

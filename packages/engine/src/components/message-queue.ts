@@ -33,6 +33,7 @@ export class MessageQueue extends LinkedComponent implements PullSource {
     inputs: [
       { key: "visibilityTimeout", type: "number", unit: "time", min: 0.000001, default: 30, required: false, description: "Seconds a received message stays hidden before it is redelivered." },
       { key: "maxReceiveCount", type: "integer", unit: "dimensionless", min: 1, required: false, description: "Receives allowed before a message is dead-lettered (when its visibility timeout expires again). Unlimited if omitted." },
+      { key: "costPerMillionRequests", type: "number", unit: "cost", min: 0, default: 0, required: false, description: "Price per million API requests (each send, receive and delete counts as one)." },
     ],
     links: [{ key: "deadLetter", description: "Where messages that exhausted maxReceiveCount are sent. They are discarded (and counted) if omitted.", required: false, accepts: "receiver" }],
     outputs: [
@@ -43,6 +44,8 @@ export class MessageQueue extends LinkedComponent implements PullSource {
       { key: "MaxQueueLength", unit: "dimensionless", description: "Largest number of visible messages.", get: (q) => q.lengthStat.max(q.now) },
       { key: "AverageInFlight", unit: "dimensionless", description: "Time-weighted average number of in-flight messages.", get: (q) => q.flightStat.mean(q.now) },
       { key: "AverageQueueTime", unit: "time", description: "Mean time a message was visible before being received (each receive counts).", get: (q) => q.waitTally.mean() },
+      { key: "NumberRequests", unit: "dimensionless", description: "Billable API requests: sends + receives + deletes.", get: (q) => q.requests },
+      { key: "Cost", unit: "cost", description: "Request charges over the measured window.", get: (q) => q.requests * q.pricePerRequest },
       { key: "NumberReceived", unit: "dimensionless", description: "Receive operations (a redelivered message counts each time).", get: (q) => q.received },
       { key: "NumberRedelivered", unit: "dimensionless", description: "Messages that became visible again because the visibility timeout expired.", get: (q) => q.redelivered },
       { key: "NumberDeadLettered", unit: "dimensionless", description: "Messages that exhausted maxReceiveCount.", get: (q) => q.deadLettered },
@@ -63,12 +66,15 @@ export class MessageQueue extends LinkedComponent implements PullSource {
   private received = 0;
   private redelivered = 0;
   private deadLettered = 0;
+  private requests = 0;
+  private readonly pricePerRequest: number;
 
   constructor(ctx: SimContext, init: ComponentInit) {
     super(ctx, init, "Empty");
     // At least one tick, so a tiny timeout can never expire within the tick of its receive.
     this.visibilityTicks = Math.max(1, ctx.kernel.secondsToTicks(init.inputs["visibilityTimeout"] as number));
     this.maxReceiveCount = init.inputs["maxReceiveCount"] as number | undefined;
+    this.pricePerRequest = (init.inputs["costPerMillionRequests"] as number) / 1_000_000;
     this.lengthStat = new TimeWeightedStat(ctx.kernel.currentTick, 0);
     this.flightStat = new TimeWeightedStat(ctx.kernel.currentTick, 0);
   }
@@ -88,6 +94,7 @@ export class MessageQueue extends LinkedComponent implements PullSource {
 
   override addEntity(entity: MovingEntity): void {
     this.noteAdded();
+    this.requests++;
     this.makeVisible({ entity, receiveCount: 0, visibleAt: this.now });
   }
 
@@ -96,6 +103,7 @@ export class MessageQueue extends LinkedComponent implements PullSource {
     if (msg === undefined) return null;
     msg.receiveCount++;
     this.received++;
+    this.requests++;
     this.waitTally.add(this.ctx.kernel.ticksToSeconds(this.now - msg.visibleAt));
     this.setFlight(this.flight + 1);
     this.visibleChanged();
@@ -111,6 +119,7 @@ export class MessageQueue extends LinkedComponent implements PullSource {
         if (!active) return false;
         active = false;
         timer.cancel();
+        this.requests++;
         this.setFlight(this.flight - 1);
         this.noteCompleted();
         return true;
@@ -158,5 +167,6 @@ export class MessageQueue extends LinkedComponent implements PullSource {
     this.received = 0;
     this.redelivered = 0;
     this.deadLettered = 0;
+    this.requests = 0;
   }
 }

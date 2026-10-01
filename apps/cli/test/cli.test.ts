@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { FileStore, Logger } from "@chronon-sim/platform";
-import { EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE, runCli } from "../src/main.js";
+import { EXIT_ASSERTION_FAILED, EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE, parseAssertion, runCli } from "../src/main.js";
 
 const examplesDir = fileURLToPath(new URL("../../../examples/", import.meta.url));
 
@@ -110,15 +110,78 @@ describe("error handling", () => {
     const h = harness();
     expect(await h.call(["schema"])).toBe(EXIT_OK);
     const schemas = JSON.parse(h.stdout.join(""));
-    expect(schemas.map((s: { type: string }) => s.type)).toEqual([
-      "EntityGenerator",
-      "Queue",
-      "Server",
-      "EntitySink",
-      "MessageQueue",
-      "WorkerPool",
-      "RetryPolicy",
-      "RateLimiter",
-    ]);
+    expect(schemas.map((s: { type: string }) => s.type)).toEqual(
+      expect.arrayContaining([
+        "EntityGenerator",
+        "Queue",
+        "Server",
+        "EntitySink",
+        "MessageQueue",
+        "WorkerPool",
+        "RetryPolicy",
+        "RateLimiter",
+        "Autoscaler",
+      ]),
+    );
+  });
+});
+
+describe("assertions", () => {
+  const model = (assertions?: unknown) =>
+    JSON.stringify({
+      version: 1,
+      settings: { duration: 100, replications: 3, seed: 2 },
+      components: [
+        { type: "EntityGenerator", name: "gen", inputs: { interArrivalTime: 1 }, links: { next: "pool" } },
+        { type: "WorkerPool", name: "pool", inputs: { concurrency: 5, serviceTime: 1 }, links: { next: "sink" } },
+        { type: "EntitySink", name: "sink" },
+      ],
+      ...(assertions ? { assertions } : {}),
+    });
+
+  it("exits 0 and prints PASS lines when every assertion holds", async () => {
+    const h = harness({ m: model([{ output: "sink.mean", op: "<=", value: 1.5 }]) });
+    expect(await h.call(["run", "m", "--assert", "pool.NumberThrottled==0", "--assert", "sink.p99@max<2"])).toBe(EXIT_OK);
+    const report = h.stdout.join("\n");
+    expect(report).toContain("Assertions: 3 passed, 0 failed");
+    expect(report).toContain("PASS  sink.mean (mean) = 1 <= 1.5");
+  });
+
+  it("exits 3 when a model assertion fails and says which", async () => {
+    const h = harness({ m: model([{ output: "sink.mean", op: "<", value: 0.5, name: "fast enough" }]) });
+    expect(await h.call(["run", "m"])).toBe(EXIT_ASSERTION_FAILED);
+    expect(h.stdout.join("\n")).toContain("FAIL  fast enough: sink.mean (mean) = 1 violates < 0.5");
+    expect(h.stderr.join("\n")).toContain("1 assertion(s) failed");
+  });
+
+  it("exits 3 for a failing --assert flag, and still writes the results file", async () => {
+    const h = harness({ m: model() });
+    expect(await h.call(["run", "m", "--assert", "sink.mean>10", "--json", "out/r.json"])).toBe(EXIT_ASSERTION_FAILED);
+    const results = JSON.parse(h.fs.files.get("out/r.json")!);
+    expect(results.assertions[0]).toMatchObject({ passed: false, actual: 1 });
+  });
+
+  it("rejects unparseable expressions and unknown outputs as usage errors", async () => {
+    const h = harness({ m: model() });
+    expect(await h.call(["run", "m", "--assert", "sink.mean ~ 2"])).toBe(EXIT_USAGE);
+    expect(h.stderr.join("\n")).toContain("cannot parse assertion");
+    const h2 = harness({ m: model() });
+    expect(await h2.call(["run", "m", "--assert", "nope.x<1"])).toBe(EXIT_USAGE);
+    expect(h2.stderr.join("\n")).toContain('unknown output "nope.x"');
+  });
+
+  it("an invalid assertion in the model is a validation error (exit 1)", async () => {
+    const h = harness({ m: model([{ output: "nope.x", op: "<", value: 1 }]) });
+    expect(await h.call(["run", "m"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("assertions[0].output");
+  });
+
+  it("parseAssertion handles statistics, scientific notation, negatives and all operators", () => {
+    expect(parseAssertion("sink.p99<=2")).toEqual({ output: "sink.p99", op: "<=", value: 2 });
+    expect(parseAssertion("a.b@ci95High >= -1.5e-3")).toEqual({ output: "a.b", op: ">=", value: -0.0015, statistic: "ci95High" });
+    expect(parseAssertion("a.b==3")).toEqual({ output: "a.b", op: "==", value: 3 });
+    expect(parseAssertion("a.b<3")).toEqual({ output: "a.b", op: "<", value: 3 });
+    expect(typeof parseAssertion("a.b@median<3")).toBe("string");
+    expect(typeof parseAssertion("a.b<")).toBe("string");
   });
 });

@@ -1,7 +1,12 @@
 import { createDefaultRegistry, type ComponentRegistry } from "../components/index.js";
 import { validateInputs, type ValidationError } from "../schema/index.js";
 import {
+  ASSERTION_OPS,
+  ASSERTION_STATISTICS,
   MODEL_FORMAT_VERSION,
+  type AssertionDefinition,
+  type AssertionOp,
+  type AssertionStatistic,
   type ComponentDefinition,
   type ModelDefinition,
   type ModelSettings,
@@ -14,7 +19,8 @@ export type LoadResult =
   | { ok: false; errors: ValidationError[] };
 
 const SETTINGS_KEYS = ["duration", "warmUp", "seed", "replications", "ticksPerSecond", "timeSeries"];
-const TOP_KEYS = ["version", "name", "description", "settings", "components"];
+const TOP_KEYS = ["version", "name", "description", "settings", "components", "assertions"];
+const ASSERTION_KEYS = ["output", "op", "value", "statistic", "name"];
 const COMPONENT_KEYS = ["type", "name", "inputs", "links", "stream"];
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -133,6 +139,8 @@ export function loadModel(json: unknown, registry: ComponentRegistry = createDef
     }
   }
 
+  const assertions = loadAssertions(json["assertions"], components, registry, modelErr);
+
   if (errors.length > 0 || settings === null) return { ok: false, errors };
   const model: ModelDefinition = {
     version: MODEL_FORMAT_VERSION,
@@ -140,8 +148,71 @@ export function loadModel(json: unknown, registry: ComponentRegistry = createDef
     ...(typeof json["description"] === "string" ? { description: json["description"] } : {}),
     settings,
     components,
+    ...(assertions.length > 0 ? { assertions } : {}),
   };
   return { ok: true, model };
+}
+
+/** True if `id` ("<component>.<OutputKey>") names an output of a component in `components`. */
+export function isKnownOutputId(
+  id: string,
+  components: readonly ComponentDefinition[],
+  registry: ComponentRegistry = createDefaultRegistry(),
+): boolean {
+  const dot = id.lastIndexOf(".");
+  if (dot <= 0) return false;
+  const comp = components.find((c) => c.name === id.slice(0, dot));
+  const schema = comp ? registry.get(comp.type)?.schema : undefined;
+  return schema?.outputs.some((o) => o.key === id.slice(dot + 1)) ?? false;
+}
+
+function loadAssertions(
+  raw: unknown,
+  components: readonly ComponentDefinition[],
+  registry: ComponentRegistry,
+  err: (key: string | null, message: string) => void,
+): AssertionDefinition[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    err("assertions", "must be an array of {output, op, value} objects");
+    return [];
+  }
+  const result: AssertionDefinition[] = [];
+  raw.forEach((a: unknown, i) => {
+    const at = (field: string) => `assertions[${i}]${field ? "." + field : ""}`;
+    if (!isRecord(a)) return err(at(""), "must be an object {output, op, value}");
+    for (const k of Object.keys(a)) if (!ASSERTION_KEYS.includes(k)) err(at(k), "unknown field");
+    let ok = true;
+    if (typeof a["output"] !== "string" || !isKnownOutputId(a["output"], components, registry)) {
+      err(at("output"), `unknown output ${JSON.stringify(a["output"])} (expected "<componentName>.<OutputKey>")`);
+      ok = false;
+    }
+    if (!(ASSERTION_OPS as readonly unknown[]).includes(a["op"])) {
+      err(at("op"), `must be one of ${ASSERTION_OPS.join(", ")}`);
+      ok = false;
+    }
+    if (!finite(a["value"])) {
+      err(at("value"), "must be a finite number");
+      ok = false;
+    }
+    if (a["statistic"] !== undefined && !(ASSERTION_STATISTICS as readonly unknown[]).includes(a["statistic"])) {
+      err(at("statistic"), `must be one of ${ASSERTION_STATISTICS.join(", ")}`);
+      ok = false;
+    }
+    if (a["name"] !== undefined && typeof a["name"] !== "string") {
+      err(at("name"), "must be a string");
+      ok = false;
+    }
+    if (!ok) return;
+    result.push({
+      output: a["output"] as string,
+      op: a["op"] as AssertionOp,
+      value: a["value"] as number,
+      ...(a["statistic"] !== undefined ? { statistic: a["statistic"] as AssertionStatistic } : {}),
+      ...(typeof a["name"] === "string" ? { name: a["name"] } : {}),
+    });
+  });
+  return result;
 }
 
 function validateTimeSeriesOutputs(

@@ -47,6 +47,11 @@ export class TimeWeightedStat {
     return (this.area + this.value * (tick - this.lastTick)) / elapsed;
   }
 
+  /** Integral of the signal over [start, tick] in value-ticks (e.g. busy-worker-ticks). */
+  integral(tick: number): number {
+    return this.area + this.value * Math.max(0, tick - this.lastTick);
+  }
+
   /** Largest value that persisted for a positive duration, up to `tick` (or the current value if none). */
   max(tick: number): number {
     let m = this.maxValue;

@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "name": "Autoscaled service under a 4x traffic spike, with cost and SLO gates",
+  "description": "A worker service behind a queue. Traffic jumps from 20/s to 80/s at t=300 for 5 minutes. A target-tracking autoscaler (50% utilisation, 15 s evaluation, 10 s provisioning delay) resizes the fleet; workers cost 0.0001 per provisioned second. The assertions are the SLO and budget gates CI would enforce. Slow it down (evaluationInterval 60, scaleUpDelay 30) and p99 rises to ~43 s, so `chronon run` fails with exit code 3.",
+  "settings": {
+    "duration": 1200,
+    "warmUp": 0,
+    "seed": 5,
+    "replications": 5,
+    "timeSeries": { "interval": 10, "outputs": ["queue.QueueLength", "service.Concurrency", "service.BusyWorkers"] }
+  },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "traffic",
+      "inputs": { "mode": "rateProfile", "rateProfile": [[0, 20], [300, 80], [600, 20]] },
+      "links": { "next": "queue" }
+    },
+    { "type": "Queue", "name": "queue" },
+    {
+      "type": "WorkerPool",
+      "name": "service",
+      "inputs": {
+        "concurrency": 20,
+        "serviceTime": { "dist": "lognormal", "mean": 0.5, "stdDev": 0.25 },
+        "costPerProvisionedSecond": 0.0001
+      },
+      "links": { "queue": "queue", "next": "done" }
+    },
+    { "type": "EntitySink", "name": "done" },
+    {
+      "type": "Autoscaler",
+      "name": "scaler",
+      "inputs": {
+        "targetUtilisation": 0.5,
+        "evaluationInterval": 15,
+        "scaleUpDelay": 10,
+        "scaleDownCooldown": 120,
+        "minConcurrency": 10,
+        "maxConcurrency": 120
+      },
+      "links": { "target": "service" }
+    }
+  ],
+  "assertions": [
+    { "name": "p99 latency under 30 s", "output": "done.p99", "op": "<=", "value": 30 },
+    { "name": "backlog stays under 5000", "output": "queue.MaxQueueLength", "op": "<", "value": 5000, "statistic": "max" },
+    { "name": "fleet cost under 8", "output": "service.Cost", "op": "<", "value": 8 }
+  ]
+}

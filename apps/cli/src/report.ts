@@ -1,4 +1,4 @@
-import type { OutputSummary, RunResults } from "@chronon-sim/engine";
+import type { AssertionResult, OutputSummary, RunResults } from "@chronon-sim/engine";
 
 function fmt(v: number | null): string {
   if (v === null) return "n/a";
@@ -9,7 +9,7 @@ function fmt(v: number | null): string {
   return v.toPrecision(5).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
 }
 
-const UNIT_LABEL = { time: "s", rate: "/s", dimensionless: "" } as const;
+const UNIT_LABEL = { time: "s", rate: "/s", cost: "cost", dimensionless: "" } as const;
 
 function row(o: OutputSummary): string[] {
   const ci = o.ci95 ? `[${fmt(o.ci95.low)}, ${fmt(o.ci95.high)}]` : "";
@@ -41,6 +41,15 @@ export function formatReport(results: RunResults): string {
     rows.push(r);
   }
   return [...head, table(["Component", "Output", "Unit", "Mean", "95% CI"], rows)].join("\n");
+}
+
+/** Render assertion outcomes, one PASS/FAIL line each. */
+export function formatAssertions(results: readonly AssertionResult[]): string {
+  const failed = results.filter((r) => !r.passed).length;
+  return [
+    `Assertions: ${results.length - failed} passed, ${failed} failed`,
+    ...results.map((r) => `  ${r.passed ? "PASS" : "FAIL"}  ${r.message}`),
+  ].join("\n");
 }
 
 /** Render time series as CSV: replication,time_s,<output ids...>. */

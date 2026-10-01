@@ -34,7 +34,7 @@ published, `npx @chronon-sim/cli run model.json` will work. A bare `npx chronon`
 named `chronon` on the registry, which is a publishing decision for later.)
 
 ```
-chronon run <model.json> [--seed N] [--replications N] [--timeseries out.csv] [--json out.json]
+chronon run <model.json> [--seed N] [--replications N] [--assert "sink.p99<=2"]... [--timeseries out.csv] [--json out.json]
 chronon schema        # component schemas as JSON
 ```
 
@@ -46,7 +46,20 @@ error: model.json failed validation with 2 errors:
   - [q.maxLength] must be >= 1
 ```
 
-Exit codes: `0` ok, `1` invalid model / malformed JSON, `2` usage or I/O error.
+Exit codes: `0` ok, `1` invalid model / malformed JSON, `2` usage or I/O error, `3` an assertion failed.
+
+### Capacity gates in CI
+
+Thresholds live in the model (`"assertions": [...]`, see [docs/model-format.md](docs/model-format.md)) or on the
+command line, and a failure fails the job:
+
+```bash
+chronon run model.json --assert "sink.p99<=2" --assert "queue.MaxQueueLength@max<5000"
+echo $?   # 3 if either threshold is violated
+```
+
+`@ci95High` makes a gate conservative (the pessimistic end of the 95% interval must satisfy the limit), and
+an assertion on an undefined value fails rather than passing silently.
 
 ### Examples
 
@@ -58,6 +71,7 @@ Exit codes: `0` ok, `1` invalid model / malformed JSON, `2` usage or I/O error.
 | [`examples/sqs-dlq.json`](examples/sqs-dlq.json) | SQS visibility timeout (10 s) shorter than processing time (mean 12 s): redeliveries, duplicate processing and a dead-letter queue. With a 60 s timeout utilisation drops to the expected 2 × 12 / 40 = 0.6 |
 | [`examples/serverless-cold-start.json`](examples/serverless-cold-start.json) | Function with a concurrency limit, cold starts and idle reclaim; a 5x spike throttles calls that retry with jittered backoff |
 | [`examples/retry-storm.json`](examples/retry-storm.json) | A flaky, nearly-saturated dependency with immediate retries amplifies its own load (see `RetryAmplification`) |
+| [`examples/autoscaled-service.json`](examples/autoscaled-service.json) | A queue-fed service under a 4x spike: target-tracking autoscaler, per-second pricing, and SLO/budget assertions that fail the run (exit 3) if scaling is too slow |
 
 ## Architecture
 

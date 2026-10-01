@@ -5,7 +5,8 @@ TypeScript/Python SDKs, CDK importers) and simulation engines (the TypeScript en
 Rust/WASM later). It contains only plain JSON values and no language-specific concepts.
 
 - **Units.** All times are in **seconds**; all rates are **per second**. This is independent of the
-  engine's internal tick resolution.
+  engine's internal tick resolution. Prices (`cost` inputs and outputs) are in whatever currency the
+  model's prices use; the engine never converts them.
 - **Versioning.** The top-level `"version"` field is required. This document describes version `1`.
   Engines must reject versions they do not support. Backwards-incompatible changes increment the version.
 - **Strictness.** Unknown fields are errors everywhere, so typos are caught rather than ignored.
@@ -117,6 +118,7 @@ acknowledged in time the message becomes visible again (a redelivery). Once a me
 |---|---|---|---|
 | `visibilityTimeout` | number > 0 (s) | `30` | Seconds a received message stays hidden. |
 | `maxReceiveCount` | integer ≥ 1 | unlimited | Receives before dead-lettering. |
+| `costPerMillionRequests` | number ≥ 0 (cost) | `0` | Price per million API requests; each send, receive and delete is one request. |
 
 Link: `deadLetter` (role `receiver`, optional; without it exhausted messages are discarded and counted).
 Outputs: `QueueLength` (visible), `InFlight`, `Backlog` (visible + in flight), `AverageQueueLength`,
@@ -137,13 +139,20 @@ omit `queue` and send entities to the pool; when every worker is busy the entity
 | `idleTimeout` | number ≥ 0 (s) | never | An idle instance goes cold after this long. The most recently used instance is reused first. |
 | `initialWarm` | integer ≥ 0 | `0` | Instances warm at time 0 (capped at `concurrency`). |
 | `failureProbability` | number in [0, 1] | `0` | Chance an entity fails after its service time. |
+| `costPerBusySecond` | number ≥ 0 (cost) | `0` | Price per busy-worker-second (serverless-style billing). |
+| `costPerProvisionedSecond` | number ≥ 0 (cost) | `0` | Price per provisioned-worker-second, busy or idle; follows autoscaling. |
+| `costPerRequest` | number ≥ 0 (cost) | `0` | Price per request started. |
 
 Links: `queue` (role `pullable`), `next`, `onFailure`, `onThrottle` (role `receiver`, all optional).
 Failures: with `onFailure` the entity goes there and is acknowledged; otherwise a `MessageQueue` source
 redelivers it after the visibility timeout and anything else loses it (counted in `NumberFailed`).
 Throttled entities go to `onThrottle` or are dropped (counted).
-Outputs: `Utilisation`, `AverageBusyWorkers`, `BusyWorkers`, `ColdStarts`, `NumberSucceeded`, `NumberFailed`,
-`NumberThrottled`, `ThrottleFraction` (throttled / pushed), `StaleAcks`.
+Outputs: `Utilisation` (busy / provisioned concurrency), `AverageBusyWorkers`, `BusyWorkers`, `Concurrency`
+(current limit), `AverageConcurrency`, `ColdStarts`, `NumberSucceeded`, `NumberFailed`, `NumberThrottled`,
+`ThrottleFraction` (throttled / pushed), `Cost`, `StaleAcks`.
+
+`Cost = busySeconds × costPerBusySecond + provisionedSeconds × costPerProvisionedSecond + requestsStarted × costPerRequest`,
+over the measured window (after `warmUp`). `provisionedSeconds` is the time-integral of the concurrency limit.
 
 A pool without a queue and without cold starts is an M/M/c/c loss system, whose blocking probability is
 the Erlang-B formula; the test suite checks this.
@@ -179,9 +188,55 @@ takes one token, otherwise it is rejected.
 Links: `next`, `onReject` (role `receiver`, optional; rejected entities are dropped and counted without it).
 Outputs: `NumberAllowed`, `NumberRejected`, `RejectionFraction`, `Tokens` (current).
 
+### `Autoscaler`
+Target-tracking autoscaler (like AWS target tracking or a Kubernetes HPA) for a `WorkerPool`. Every
+`evaluationInterval` it measures the average number of busy workers over that interval and computes
+`desired = ceil(averageBusy / targetUtilisation)`, clamped to `[minConcurrency, maxConcurrency]`.
+Scale-out takes effect after `scaleUpDelay`; scale-in is immediate but only `scaleDownCooldown` seconds after the
+last scaling change. A saturated pool therefore grows by a factor of `1 / targetUtilisation` per evaluation.
+
+| Input | Type | Default | |
+|---|---|---|---|
+| `targetUtilisation` | number in [0.05, 1] | `0.6` | Busy workers / concurrency to aim for. |
+| `evaluationInterval` | number > 0 (s) | `60` | Seconds between decisions, and the averaging window. |
+| `minConcurrency` | integer ≥ 1 | `1` | |
+| `maxConcurrency` | integer ≥ 1 | **required** | |
+| `scaleUpDelay` | number ≥ 0 (s) | `0` | Provisioning time before added capacity is usable. |
+| `scaleDownCooldown` | number ≥ 0 (s) | `300` | Minimum seconds since the last change before scaling in. |
+
+Link: `target` (role `scalable`, **required**). Outputs: `ScaleOuts`, `ScaleIns`, `DesiredConcurrency` (current).
+Lowering a pool's concurrency never interrupts running work: the pool just stops starting new work until busy
+workers fall below the new limit.
+
 ### Roles
-`Queue` has roles `receiver`, `queue`, `pullable`; `MessageQueue` has `receiver`, `pullable`. `Server.queue`
-needs role `queue` (so a plain `Queue`); `WorkerPool.queue` needs `pullable` (either).
+`Queue` has roles `receiver`, `queue`, `pullable`; `MessageQueue` has `receiver`, `pullable`; `WorkerPool` has
+`receiver`, `scalable`. `Server.queue` needs role `queue` (so a plain `Queue`); `WorkerPool.queue` needs `pullable`
+(either); `Autoscaler.target` needs `scalable`.
+
+## Assertions
+
+An optional top-level `assertions` array states capacity thresholds that must hold after a run, so a model
+can gate CI:
+
+```json
+"assertions": [
+  { "name": "p99 under 2 s", "output": "sink.p99", "op": "<=", "value": 2 },
+  { "output": "queue.MaxQueueLength", "op": "<", "value": 5000, "statistic": "max" }
+]
+```
+
+| Field | Meaning |
+|---|---|
+| `output` | An output id `"<componentName>.<OutputKey>"`. Must exist. |
+| `op` | One of `<`, `<=`, `>`, `>=`, `==`. |
+| `value` | The threshold, in the output's own unit. |
+| `statistic` | Which number is compared: `mean` (default, across replications), `ci95High` / `ci95Low` (ends of the 95% confidence interval, so `ci95High` with `<=` demands the limit hold even at the pessimistic end of the estimate), `min` / `max` (smallest / largest over replications: a worst-case gate). |
+| `name` | Optional label shown in reports. |
+
+An assertion whose value is undefined (no observations, or a confidence interval from a single replication)
+**fails**: a gate that passes when its data is missing is worse than no gate. Results carry an `assertions`
+array of `{assertion, actual, passed, message}`. The CLI prints PASS/FAIL lines and exits with code `3` if any
+fail; extra checks can be added at the command line with `--assert "sink.p99<=2"`.
 
 ## Results
 
