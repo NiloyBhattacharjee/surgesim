@@ -5,6 +5,7 @@
     { "path": "packages/platform" },
     { "path": "packages/sdk" },
     { "path": "packages/report" },
+    { "path": "packages/importer" },
     { "path": "apps/cli" }
   ]
 }

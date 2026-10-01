@@ -22,6 +22,12 @@
     },
     {
       "path": "../../packages/report"
+    },
+    {
+      "path": "../../packages/importer"
+    },
+    {
+      "path": "../../packages/sdk"
     }
   ]
 }

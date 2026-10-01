@@ -29,14 +29,26 @@ importers:
       '@chronon-sim/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@chronon-sim/importer':
+        specifier: workspace:*
+        version: link:../../packages/importer
       '@chronon-sim/platform':
         specifier: workspace:*
         version: link:../../packages/platform
       '@chronon-sim/report':
         specifier: workspace:*
         version: link:../../packages/report
+      '@chronon-sim/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
 
   packages/engine: {}
+
+  packages/importer:
+    dependencies:
+      '@chronon-sim/sdk':
+        specifier: workspace:*
+        version: link:../sdk
 
   packages/platform: {}
 

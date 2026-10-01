@@ -1,0 +1,81 @@
+{
+  "Description": "Order processing stack (CDK-style): SQS + DLQ + Lambda consumer, and an ECS API behind API Gateway throttling",
+  "Parameters": {
+    "OrdersVisibilityTimeout": { "Type": "Number", "Default": 60 }
+  },
+  "Resources": {
+    "OrdersDlq5E6F7A8B": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": { "MessageRetentionPeriod": 1209600 },
+      "Metadata": { "aws:cdk:path": "OrdersStack/OrdersDlq/Resource" }
+    },
+    "OrdersQueue1A2B3C4D": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "VisibilityTimeout": { "Ref": "OrdersVisibilityTimeout" },
+        "RedrivePolicy": {
+          "deadLetterTargetArn": { "Fn::GetAtt": ["OrdersDlq5E6F7A8B", "Arn"] },
+          "maxReceiveCount": 5
+        }
+      },
+      "Metadata": { "aws:cdk:path": "OrdersStack/OrdersQueue/Resource" }
+    },
+    "ProcessorRole9A8B7C6D": {
+      "Type": "AWS::IAM::Role",
+      "Properties": { "AssumeRolePolicyDocument": {} }
+    },
+    "ProcessorFnC0FFEE12": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Runtime": "nodejs20.x",
+        "Handler": "index.handler",
+        "Timeout": 30,
+        "MemorySize": 512,
+        "ReservedConcurrentExecutions": 20,
+        "Role": { "Fn::GetAtt": ["ProcessorRole9A8B7C6D", "Arn"] }
+      },
+      "Metadata": { "aws:cdk:path": "OrdersStack/ProcessorFn/Resource" }
+    },
+    "ProcessorFnSqsEventSourceD1E2F3A4": {
+      "Type": "AWS::Lambda::EventSourceMapping",
+      "Properties": {
+        "FunctionName": { "Ref": "ProcessorFnC0FFEE12" },
+        "EventSourceArn": { "Fn::GetAtt": ["OrdersQueue1A2B3C4D", "Arn"] },
+        "BatchSize": 1
+      }
+    },
+    "ApiServiceB5C6D7E8": {
+      "Type": "AWS::ECS::Service",
+      "Properties": { "DesiredCount": 2, "LaunchType": "FARGATE" },
+      "Metadata": { "aws:cdk:path": "OrdersStack/ApiService/Service/Service" }
+    },
+    "ApiServiceScalingTargetF9A0B1C2": {
+      "Type": "AWS::ApplicationAutoScaling::ScalableTarget",
+      "Properties": {
+        "MinCapacity": 2,
+        "MaxCapacity": 10,
+        "ResourceId": { "Fn::Join": ["", ["service/cluster/", { "Fn::GetAtt": ["ApiServiceB5C6D7E8", "Name"] }]] },
+        "ScalableDimension": "ecs:service:DesiredCount",
+        "ServiceNamespace": "ecs"
+      }
+    },
+    "ApiServiceScalingTargetCpu3D4E5F6A": {
+      "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
+      "Properties": {
+        "PolicyType": "TargetTrackingScaling",
+        "ScalingTargetId": { "Ref": "ApiServiceScalingTargetF9A0B1C2" },
+        "TargetTrackingScalingPolicyConfiguration": {
+          "PredefinedMetricSpecification": { "PredefinedMetricType": "ECSServiceAverageCPUUtilization" },
+          "TargetValue": 70,
+          "ScaleInCooldown": 120
+        }
+      }
+    },
+    "ApiUsagePlan7B8C9D0E": {
+      "Type": "AWS::ApiGateway::UsagePlan",
+      "Properties": { "Throttle": { "RateLimit": 50, "BurstLimit": 100 } }
+    },
+    "ArchiveBucket1F2A3B4C": { "Type": "AWS::S3::Bucket" },
+    "CDKMetadata": { "Type": "AWS::CDK::Metadata", "Properties": { "Analytics": "v2:deflate64:abc" } }
+  }
+}

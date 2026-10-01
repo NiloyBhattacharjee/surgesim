@@ -357,3 +357,62 @@ describe("HTML reports and comparisons", () => {
     expect(h.fs.files.get("c.html")).toContain("2 replications");
   });
 });
+
+describe("chronon import (CloudFormation / CDK)", () => {
+  const template = readFileSync(join(examplesDir, "cloudformation", "orders-stack.template.json"), "utf8");
+
+  it("writes a model file, then summarises what it mapped and what it assumed", async () => {
+    const h = harness({ "stack.json": template });
+    expect(await h.call(["import", "stack.json", "--out", "out/model.json", "--rate", "5", "--service-time", "0.3"])).toBe(EXIT_OK);
+    const model = JSON.parse(h.fs.files.get("out/model.json")!);
+    expect(model.components.some((c: { name: string }) => c.name === "OrdersQueue")).toBe(true);
+    const out = h.stdout.join("\n");
+    expect(out).toContain("Imported 5 resource(s)");
+    expect(out).toContain('OrdersQueue1A2B3C4D (AWS::SQS::Queue) -> MessageQueue "OrdersQueue"');
+    expect(out).toContain("Not modelled (ignored): ArchiveBucket1F2A3B4C");
+    expect(out).toContain("Assumptions");
+    expect(out).not.toContain("Traffic:"); // --rate was given
+  });
+
+  it("without --out the model goes to stdout as pure JSON and the summary goes to stderr", async () => {
+    const h = harness({ "stack.json": template });
+    expect(await h.call(["import", "stack.json"])).toBe(EXIT_OK);
+    expect(() => JSON.parse(h.stdout.join("\n"))).not.toThrow();
+    expect(h.stderr.join("\n")).toContain("Assumptions");
+    expect(h.stderr.join("\n")).toContain("Traffic: 10 requests/second");
+  });
+
+  it("the imported model runs, and --entry limits where traffic arrives", async () => {
+    const h = harness({ "stack.json": template });
+    await h.call(["import", "stack.json", "--out", "m.json", "--entry", "OrdersQueue", "--duration", "120", "--replications", "2"]);
+    const model = JSON.parse(h.fs.files.get("m.json")!);
+    expect(model.components.filter((c: { name: string }) => c.name.startsWith("traffic-"))).toHaveLength(1);
+    const h2 = harness({ "m.json": h.fs.files.get("m.json")! });
+    expect(await h2.call(["run", "m.json"])).toBe(EXIT_OK);
+    expect(h2.stdout.join("\n")).toContain("ProcessorFn");
+  });
+
+  it("--concurrency-per-task scales ECS capacity", async () => {
+    const h = harness({ "stack.json": template });
+    expect(await h.call(["import", "stack.json", "--out", "m.json", "--concurrency-per-task", "4"])).toBe(EXIT_OK);
+    const model = JSON.parse(h.fs.files.get("m.json")!);
+    expect(model.components.find((c: { name: string }) => c.name === "ApiService").inputs.concurrency).toBe(8); // 2 tasks x 4
+  });
+
+  it("explains that YAML is unsupported, and where to find the JSON template", async () => {
+    const h = harness({ "stack.yaml": "AWSTemplateFormatVersion: '2010-09-09'\nResources:\n  Q:\n    Type: AWS::SQS::Queue\n" });
+    expect(await h.call(["import", "stack.yaml"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("cdk.out");
+  });
+
+  it("rejects non-templates, missing files, bad numbers and bad usage", async () => {
+    const h = harness({ "x.json": "{}" });
+    expect(await h.call(["import", "x.json"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("Resources");
+    expect(await h.call(["import", "missing.json"])).toBe(EXIT_USAGE);
+    expect(await h.call(["import", "x.json", "--rate", "-3"])).toBe(EXIT_USAGE);
+    expect(await h.call(["import", "x.json", "--service-time", "abc"])).toBe(EXIT_USAGE);
+    expect(await h.call(["import", "x.json", "--concurrency-per-task", "0"])).toBe(EXIT_USAGE);
+    expect(await h.call(["import"])).toBe(EXIT_USAGE);
+  });
+});

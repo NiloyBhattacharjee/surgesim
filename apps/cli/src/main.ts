@@ -14,6 +14,7 @@ import type { Clock, FileStore, Logger } from "@chronon-sim/platform";
 import { formatAssertions, formatReport, timeSeriesCsv } from "./report.js";
 import { renderReport } from "@chronon-sim/report";
 import { runCompare, runReport } from "./compare.js";
+import { runImport } from "./import.js";
 import { EXIT_ASSERTION_FAILED, EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE } from "./exit.js";
 import { loadModelSource } from "./source.js";
 
@@ -33,6 +34,8 @@ const USAGE = `Usage:
   chronon run <model> [--seed N] [--replications N] [--assert EXPR]... [--html report.html] [--timeseries out.csv] [--json out.json]
   chronon report <results.json|model> --html report.html     Render an HTML report from saved results
   chronon compare <a> <b> --html compare.html                Compare two runs (results files or models)
+  chronon import <template.json> [--out model.json] [--rate N] [--service-time MEAN] [--entry ID]...
+                            Convert a CloudFormation / CDK template (cdk.out/*.template.json) to a model
   chronon compile <model.ts|.js|.json> [--out model.json]   Build a model module to the JSON format
   chronon schema            Print the component schemas as JSON
 
@@ -49,7 +52,14 @@ Options:
   --html FILE         Write a self-contained HTML report (charts, assertions, tables); for report/compare too
   --title TEXT        (report/compare) Override the page title
   --label-a/--label-b (compare) Names for the two sides (default: the file names)
-  --out FILE          (compile) Write the JSON model to a file instead of stdout
+  --out FILE          (compile, import) Write the JSON model to a file instead of stdout
+  --rate N            (import) Requests per second at each entry point (default 10; templates do not say)
+  --service-time MEAN (import) Mean service time in seconds, exponential (default 0.2; templates do not say)
+  --concurrency-per-task N  (import) Requests one ECS task handles at once (default 10)
+  --cold-start S      (import) Cold start seconds for Lambda functions (default none)
+  --duration S        (import) Simulated seconds (default 600)
+  --entry ID          (import) Entry point logical id or name (repeatable)
+  --name TEXT         (import) Model name
   -h, --help          Show this help`;
 
 const NUMBER = String.raw`-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?`;
@@ -93,6 +103,13 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
         assert: { type: "string", multiple: true },
         out: { type: "string" },
         html: { type: "string" },
+        rate: { type: "string" },
+        "service-time": { type: "string" },
+        "cold-start": { type: "string" },
+        "concurrency-per-task": { type: "string" },
+        duration: { type: "string" },
+        entry: { type: "string", multiple: true },
+        name: { type: "string" },
         title: { type: "string" },
         "label-a": { type: "string" },
         "label-b": { type: "string" },
@@ -114,6 +131,54 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
   if (command === "schema") {
     logger.info(JSON.stringify(createDefaultRegistry().schemas().map(describeSchema), null, 2));
     return EXIT_OK;
+  }
+
+  if (command === "import") {
+    if (modelPath === undefined || positionals.length > 2) {
+      logger.error(`error: expected "chronon import <template.json> [--out model.json]"
+
+${USAGE}`);
+      return EXIT_USAGE;
+    }
+    const num = (flag: string, raw: string | undefined, positive: boolean): number | undefined | "bad" => {
+      if (raw === undefined) return undefined;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || (positive ? n <= 0 : n < 0)) {
+        logger.error(`error: --${flag} must be a ${positive ? "positive" : "non-negative"} number (got "${raw}")`);
+        return "bad";
+      }
+      return n;
+    };
+    const rate = num("rate", values.rate, true);
+    const serviceTime = num("service-time", values["service-time"], true);
+    const coldStart = num("cold-start", values["cold-start"], false);
+    const duration = num("duration", values.duration, true);
+    const perTask = num("concurrency-per-task", values["concurrency-per-task"], true);
+    const iSeed = parseIntOption("seed", values.seed, 0);
+    const iReps = parseIntOption("replications", values.replications, 1);
+    for (const v of [rate, serviceTime, coldStart, duration, perTask]) if (v === "bad") return EXIT_USAGE;
+    for (const v of [iSeed, iReps]) {
+      if (typeof v === "string") {
+        logger.error(`error: ${v}`);
+        return EXIT_USAGE;
+      }
+    }
+    return runImport(
+      modelPath,
+      {
+        out: values.out,
+        name: values.name,
+        rate: rate as number | undefined,
+        serviceTime: serviceTime as number | undefined,
+        coldStart: coldStart as number | undefined,
+        duration: duration as number | undefined,
+        concurrencyPerTask: perTask as number | undefined,
+        seed: iSeed as number | undefined,
+        replications: iReps as number | undefined,
+        entry: values.entry ?? [],
+      },
+      host,
+    );
   }
 
   if (command === "report") {

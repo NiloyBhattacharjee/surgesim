@@ -17,6 +17,8 @@
   "dependencies": {
     "@chronon-sim/engine": "workspace:*",
     "@chronon-sim/platform": "workspace:*",
-    "@chronon-sim/report": "workspace:*"
+    "@chronon-sim/report": "workspace:*",
+    "@chronon-sim/importer": "workspace:*",
+    "@chronon-sim/sdk": "workspace:*"
   }
 }
