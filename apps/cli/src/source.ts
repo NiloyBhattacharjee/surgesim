@@ -61,10 +61,16 @@ export async function readModelSource(path: string, host: SourceHost): Promise<S
     mod = await host.importModule(path);
   } catch (e) {
     const err = e as Error & { code?: string };
-    const hint =
-      /\.[cm]?ts$/i.test(path) && (err.code === "ERR_UNKNOWN_FILE_EXTENSION" || /Unknown file extension/.test(err.message))
-        ? "\n  TypeScript models need Node 22.18+ (or run through tsx / ts-node), or compile to .js first."
-        : "";
+    const isTs = /\.[cm]?ts$/i.test(path);
+    let hint = "";
+    if (isTs && (err.code === "ERR_UNKNOWN_FILE_EXTENSION" || /Unknown file extension/.test(err.message))) {
+      hint = "\n  TypeScript models need Node 22.18+ (or run through tsx / ts-node), or compile to .js first.";
+    } else if (/Cannot use import statement outside a module|Unexpected token 'export'|Cannot use 'import.meta' outside a module/.test(err.message)) {
+      // Node treats .js/.ts as CommonJS unless the nearest package.json says "type": "module".
+      hint = isTs
+        ? '\n  Models are ES modules. Rename the file to .mts, or add "type": "module" to your package.json.'
+        : '\n  Models are ES modules. Rename the file to .mjs, or add "type": "module" to your package.json.';
+    }
     return { ok: false, code: EXIT_USAGE, message: `cannot load ${path}: ${err.message}${hint}` };
   }
   const exported = isRecord(mod) ? (mod["default"] ?? mod["model"]) : undefined;

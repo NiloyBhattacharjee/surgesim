@@ -416,3 +416,27 @@ describe("chronon import (CloudFormation / CDK)", () => {
     expect(await h.call(["import"])).toBe(EXIT_USAGE);
   });
 });
+
+describe("model module load errors give actionable hints", () => {
+  const failing = (message: string) => async () => {
+    throw new Error(message);
+  };
+
+  it("an ES module in a CommonJS project says to use .mts or set type: module (TypeScript)", async () => {
+    const h = harness({}, failing("Cannot use import statement outside a module"));
+    expect(await h.call(["run", "model.ts"])).toBe(EXIT_USAGE);
+    expect(h.stderr.join("\n")).toContain('Rename the file to .mts, or add "type": "module"');
+  });
+
+  it("and says to use .mjs for JavaScript", async () => {
+    const h = harness({}, failing("Cannot use import statement outside a module"));
+    expect(await h.call(["run", "model.js"])).toBe(EXIT_USAGE);
+    expect(h.stderr.join("\n")).toContain('Rename the file to .mjs, or add "type": "module"');
+  });
+
+  it("other import errors get no misleading hint", async () => {
+    const h = harness({}, failing("Cannot find package 'left-pad'"));
+    expect(await h.call(["run", "model.mjs"])).toBe(EXIT_USAGE);
+    expect(h.stderr.join("\n")).not.toContain("Rename the file");
+  });
+});

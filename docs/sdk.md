@@ -39,6 +39,14 @@ chronon run checkout.ts                       # run it (TypeScript needs Node 22
 chronon compile checkout.ts --out model.json  # emit the JSON contract (validated first)
 ```
 
+## Running model files
+
+Model files are ES modules. In a project whose `package.json` says `"type": "commonjs"` (which `npm init` writes by
+default), Node treats `.ts` and `.js` files as CommonJS and the import fails with "Cannot use import statement outside a
+module". Either name the file
+`.mts` (or `.mjs`), or add `"type": "module"` to your `package.json`. `chronon` suggests this when it sees the error.
+Running `.ts` directly needs Node 22.18+; on older Node, compile to `.js` first or run through `tsx`.
+
 ## How it maps to the format
 
 - `new Model(name, { duration, warmUp?, seed?, replications?, ticksPerSecond?, description? })` is the model

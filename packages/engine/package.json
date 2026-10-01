@@ -1,14 +1,43 @@
 {
   "name": "@chronon-sim/engine",
   "version": "0.1.0",
-  "description": "Domain-neutral headless discrete event simulation engine (no DOM, no Node APIs).",
+  "description": "Chronon Sim engine: a discrete event simulator for cloud and distributed systems (queues, worker pools, retries, autoscaling). No DOM or Node APIs, no runtime dependencies.",
+  "keywords": [
+    "simulation",
+    "discrete-event",
+    "queueing",
+    "capacity-planning",
+    "sqs",
+    "lambda",
+    "autoscaling"
+  ],
   "license": "Apache-2.0",
+  "homepage": "https://github.com/NiloyBhattacharjee/chronon-sim#readme",
+  "bugs": {
+    "url": "https://github.com/NiloyBhattacharjee/chronon-sim/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NiloyBhattacharjee/chronon-sim.git",
+    "directory": "packages/engine"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
-  "files": ["dist"],
-  "sideEffects": false
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepublishOnly": "tsc -b"
+  }
 }

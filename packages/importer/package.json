@@ -2,16 +2,43 @@
   "name": "@chronon-sim/importer",
   "version": "0.1.0",
   "description": "Import AWS CloudFormation / CDK-synthesized templates as Chronon Sim models. No Node or DOM APIs.",
+  "keywords": [
+    "simulation",
+    "cloudformation",
+    "cdk",
+    "aws",
+    "import"
+  ],
   "license": "Apache-2.0",
+  "homepage": "https://github.com/NiloyBhattacharjee/chronon-sim#readme",
+  "bugs": {
+    "url": "https://github.com/NiloyBhattacharjee/chronon-sim/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NiloyBhattacharjee/chronon-sim.git",
+    "directory": "packages/importer"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "dependencies": {
     "@chronon-sim/sdk": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepublishOnly": "tsc -b"
   }
 }

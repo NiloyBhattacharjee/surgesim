@@ -1,8 +1,25 @@
 {
   "name": "@chronon-sim/cli",
   "version": "0.1.0",
-  "description": "The chronon command-line runner for Chronon Sim models.",
+  "description": "The chronon command-line tool: run Chronon Sim models, enforce capacity thresholds in CI, write HTML reports, compare runs, import CloudFormation/CDK.",
+  "keywords": [
+    "simulation",
+    "cli",
+    "capacity-planning",
+    "ci",
+    "aws",
+    "cdk"
+  ],
   "license": "Apache-2.0",
+  "homepage": "https://github.com/NiloyBhattacharjee/chronon-sim#readme",
+  "bugs": {
+    "url": "https://github.com/NiloyBhattacharjee/chronon-sim/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NiloyBhattacharjee/chronon-sim.git",
+    "directory": "apps/cli"
+  },
   "type": "module",
   "bin": {
     "chronon": "./dist/bin.js"
@@ -20,5 +37,11 @@
     "@chronon-sim/report": "workspace:*",
     "@chronon-sim/importer": "workspace:*",
     "@chronon-sim/sdk": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepublishOnly": "tsc -b"
   }
 }

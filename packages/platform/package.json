@@ -1,14 +1,38 @@
 {
   "name": "@chronon-sim/platform",
   "version": "0.1.0",
-  "description": "Platform interfaces (FileStore, Logger, Clock) implemented by hosts such as the CLI.",
+  "description": "Interfaces for everything environment-specific in Chronon Sim (file I/O, logging, wall clock). Interfaces only, no runtime code.",
+  "keywords": [
+    "simulation",
+    "interfaces"
+  ],
   "license": "Apache-2.0",
+  "homepage": "https://github.com/NiloyBhattacharjee/chronon-sim#readme",
+  "bugs": {
+    "url": "https://github.com/NiloyBhattacharjee/chronon-sim/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NiloyBhattacharjee/chronon-sim.git",
+    "directory": "packages/platform"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
-  "files": ["dist"],
-  "sideEffects": false
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepublishOnly": "tsc -b"
+  }
 }
