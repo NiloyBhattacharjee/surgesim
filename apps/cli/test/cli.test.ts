@@ -440,3 +440,37 @@ describe("model module load errors give actionable hints", () => {
     expect(h.stderr.join("\n")).not.toContain("Rename the file");
   });
 });
+
+describe("models that can never finish", () => {
+  const stuck = JSON.stringify({
+    version: 1,
+    settings: { duration: 10 },
+    components: [
+      { type: "EntityGenerator", name: "gen", inputs: { interArrivalTime: 0 }, links: { next: "sink" } },
+      { type: "EntitySink", name: "sink" },
+    ],
+  });
+
+  it("run reports a readable error and exits 1 instead of crashing (this model used to spin until it ran out of memory)", async () => {
+    const h = harness({ m: stuck });
+    expect(await h.call(["run", "m"])).toBe(EXIT_INVALID_MODEL);
+    const err = h.stderr.join("\n");
+    expect(err).toContain("the simulation could not finish");
+    expect(err).toContain("without the clock advancing");
+    expect(err).toContain("interArrivalTime");
+    expect(err).not.toMatch(/\bat \w+.*\.js:\d+/); // no stack trace
+  }, 60_000);
+
+  it("compare reports it the same way for either side", async () => {
+    const ok = JSON.stringify({ version: 1, settings: { duration: 10 }, components: [{ type: "EntityGenerator", name: "g", inputs: { interArrivalTime: 1 }, links: { next: "s" } }, { type: "EntitySink", name: "s" }] });
+    const h = harness({ a: ok, b: stuck });
+    expect(await h.call(["compare", "a", "b"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("b: the simulation could not finish");
+  }, 60_000);
+
+  it("a generator that stops (maxNumber) with zero gaps is fine: simultaneous arrivals are legitimate", async () => {
+    const burst = JSON.stringify({ version: 1, settings: { duration: 10 }, components: [{ type: "EntityGenerator", name: "g", inputs: { interArrivalTime: 0, maxNumber: 5000 }, links: { next: "s" } }, { type: "EntitySink", name: "s" }] });
+    const h = harness({ m: burst });
+    expect(await h.call(["run", "m"])).toBe(EXIT_OK);
+  });
+});

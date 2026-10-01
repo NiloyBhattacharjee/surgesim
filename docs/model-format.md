@@ -238,6 +238,18 @@ An assertion whose value is undefined (no observations, or a confidence interval
 array of `{assertion, actual, passed, message}`. The CLI prints PASS/FAIL lines and exits with code `3` if any
 fail; extra checks can be added at the command line with `--assert "sink.p99<=2"`.
 
+## Models that cannot finish
+
+A model can pass validation and still be impossible to complete, typically a loop with no delay in it, such as an
+`EntityGenerator` with `interArrivalTime: 0` and no `maxNumber`: events keep scheduling more events at the same instant,
+so simulated time never advances. The engine stops such a run once more than 10 million events have happened at one
+instant and reports a `SimulationLimitError` explaining what happened. The CLI prints it as
+`error: the simulation could not finish: ...` and exits with code `1`. Many simultaneous events are fine below that
+limit (for example `interArrivalTime: 0` with `maxNumber: 5000` produces 5,000 arrivals at the same instant).
+
+Time values far beyond the run (more than about 285 years at the default resolution) are capped rather than rejected,
+because an event that far away simply never happens during the run.
+
 ## Results
 
 `chronon run --json` writes a `RunResults` object (`resultsVersion: 1`): the settings used, one summary

@@ -12,6 +12,28 @@ export const Priority = {
 /** Default simulation resolution: microseconds. */
 export const DEFAULT_TICKS_PER_SECOND = 1_000_000;
 
+/**
+ * How many events may run in a row without the clock advancing before the run is declared stuck.
+ * A legitimate burst (thousands of simultaneous arrivals) is far below this; a zero-delay loop hits it in seconds.
+ */
+export const DEFAULT_MAX_EVENTS_PER_TICK = 10_000_000;
+
+/** Safety limits for a kernel. Both are optional. */
+export interface KernelLimits {
+  /** Largest number of events allowed at one instant (default {@link DEFAULT_MAX_EVENTS_PER_TICK}). */
+  maxEventsPerTick?: number;
+  /** Largest total number of events in a run (default unlimited). */
+  maxEvents?: number;
+}
+
+/** Thrown when a simulation hits a safety limit, such as a zero-delay loop that would never end. */
+export class SimulationLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SimulationLimitError";
+  }
+}
+
 /** A handle to a scheduled event or registered condition. */
 export interface EventHandle {
   /** Cancel the event. No effect if it already fired or was cancelled. */
@@ -90,12 +112,18 @@ export class Kernel {
   private pendingEvents = 0;
   private conditions: Condition[] = [];
   private processed = 0;
+  /** How many events in a row have run without the clock moving. */
+  private sameTickStreak = 0;
+  private readonly maxEventsPerTick: number;
+  private readonly maxEvents: number;
 
-  constructor(ticksPerSecond: number = DEFAULT_TICKS_PER_SECOND) {
+  constructor(ticksPerSecond: number = DEFAULT_TICKS_PER_SECOND, limits: KernelLimits = {}) {
     if (!Number.isInteger(ticksPerSecond) || ticksPerSecond < 1) {
       throw new RangeError(`ticksPerSecond must be a positive integer, got ${ticksPerSecond}`);
     }
     this.ticksPerSecond = ticksPerSecond;
+    this.maxEventsPerTick = limits.maxEventsPerTick ?? DEFAULT_MAX_EVENTS_PER_TICK;
+    this.maxEvents = limits.maxEvents ?? Infinity;
   }
 
   /** The current simulation time in ticks. */
@@ -118,9 +146,13 @@ export class Kernel {
     return this.processed;
   }
 
-  /** Convert seconds to the nearest whole tick. */
+  /**
+   * Convert seconds to the nearest whole tick. Results are capped at the largest exactly representable
+   * tick count: a delay that long (about 285 years at the default resolution) means "never within this
+   * run", and an uncapped absurd value would overflow to Infinity and be rejected by {@link Kernel.schedule}.
+   */
   secondsToTicks(seconds: number): number {
-    return Math.round(seconds * this.ticksPerSecond);
+    return Math.min(Number.MAX_SAFE_INTEGER, Math.round(seconds * this.ticksPerSecond));
   }
 
   /** Convert ticks to seconds. */
@@ -201,6 +233,7 @@ export class Kernel {
       if (this.conditions.length > 0 && this.fireReadyConditions()) next = this.peekLive();
     }
     if (next === undefined || next.tick > limit) return false;
+    this.guardAgainstRunaway(next.tick);
     this.heap.pop();
     this.tick = next.tick;
     next.state = FIRED;
@@ -208,6 +241,24 @@ export class Kernel {
     this.processed++;
     next.callback();
     return true;
+  }
+
+  /**
+   * Stop a model that can never finish. Events that keep scheduling more events at the same instant
+   * (a zero-delay loop) would otherwise run forever without the clock moving, so the run neither ends
+   * nor reports anything. The limits turn that into a clear error.
+   */
+  private guardAgainstRunaway(nextTick: number): void {
+    this.sameTickStreak = nextTick === this.tick ? this.sameTickStreak + 1 : 1;
+    if (this.sameTickStreak > this.maxEventsPerTick) {
+      throw new SimulationLimitError(
+        `the simulation appears stuck: more than ${this.maxEventsPerTick.toLocaleString("en-US")} events ran at t=${this.ticksToSeconds(this.tick)} s without the clock advancing. ` +
+          "This usually means a loop with no delay in it, for example an interArrivalTime or retry baseDelay of 0 with nothing to stop it (add maxNumber or a delay).",
+      );
+    }
+    if (this.processed >= this.maxEvents) {
+      throw new SimulationLimitError(`the simulation reached its limit of ${this.maxEvents.toLocaleString("en-US")} events at t=${this.ticksToSeconds(this.tick)} s`);
+    }
   }
 
   private fireReadyConditions(): boolean {

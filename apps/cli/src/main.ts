@@ -287,7 +287,15 @@ ${USAGE}`);
   if (values.timeseries !== undefined && !model.settings.timeSeries) options.timeSeries = defaultTimeSeries(model);
 
   const started = clock.nowMs();
-  const results = runModel(model, options);
+  let results;
+  try {
+    results = runModel(model, options);
+  } catch (e) {
+    // A model can be valid yet impossible to finish (for example a zero-delay loop). Say so plainly.
+    logger.error(`error: the simulation could not finish: ${(e as Error).message}`);
+    if (!(e instanceof Error && e.name === "SimulationLimitError")) logger.debug((e as Error).stack ?? "");
+    return EXIT_INVALID_MODEL;
+  }
   const elapsed = clock.nowMs() - started;
 
   logger.info(formatReport(results));

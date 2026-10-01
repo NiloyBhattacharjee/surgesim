@@ -32,7 +32,11 @@ export async function loadResults(path: string, host: SourceHost, overrides: { s
   }
   const loaded = await loadModelSource(path, host);
   if (!loaded.ok) return loaded;
-  return { ok: true, results: runModel(loaded.model, overrides) };
+  try {
+    return { ok: true, results: runModel(loaded.model, overrides) };
+  } catch (e) {
+    return { ok: false, code: EXIT_INVALID_MODEL, message: `${path}: the simulation could not finish: ${(e as Error).message}` };
+  }
 }
 
 /** `chronon report <results.json|model> --html out.html` */

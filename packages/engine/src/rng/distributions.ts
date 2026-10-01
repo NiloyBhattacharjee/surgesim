@@ -121,9 +121,13 @@ export class LognormalSampler implements SampleProvider {
   private readonly mu: number;
   private readonly sigma: number;
   constructor(rng: Rng, mean: number, stdDev: number) {
-    const variance = (stdDev / mean) ** 2;
-    this.sigma = Math.sqrt(Math.log(1 + variance));
-    this.mu = Math.log(mean) - 0.5 * this.sigma * this.sigma;
+    // sigma^2 = ln(1 + (stdDev/mean)^2). log1p keeps precision when the ratio is tiny. When the squared ratio
+    // overflows (a subnormal mean, or an enormous stdDev) 1 + ratio^2 is just ratio^2, so use 2 ln(stdDev/mean)
+    // computed from the two logs; the direct formula would give ln(Infinity) - Infinity = NaN.
+    const ratioSquared = (stdDev / mean) ** 2;
+    const sigmaSquared = Number.isFinite(ratioSquared) ? Math.log1p(ratioSquared) : 2 * (Math.log(stdDev) - Math.log(mean));
+    this.sigma = Math.sqrt(sigmaSquared);
+    this.mu = Math.log(mean) - 0.5 * sigmaSquared;
     this.normal = new NormalSampler(rng, 0, 1);
   }
   nextSample(): number {

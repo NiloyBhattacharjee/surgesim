@@ -15,6 +15,10 @@ export interface RunOptions {
   /** Extra assertions to check in addition to the model's own. */
   assertions?: AssertionDefinition[];
   registry?: ComponentRegistry;
+  /** Stop with a SimulationLimitError if this many events run at one instant (default 10 million): guards against zero-delay loops. */
+  maxEventsPerTick?: number;
+  /** Stop with a SimulationLimitError after this many events in one replication (default unlimited). */
+  maxEvents?: number;
 }
 
 /**
@@ -49,7 +53,10 @@ export function runModel(model: ModelDefinition, options: RunOptions = {}): RunR
   const reps = [];
   const series: TimeSeriesReplication[] = [];
   for (let i = 0; i < replications; i++) {
-    const sim = new Simulation(model, replicationSeed(seed, i), i, tsConfig, registry);
+    const sim = new Simulation(model, replicationSeed(seed, i), i, tsConfig, registry, {
+      ...(options.maxEventsPerTick !== undefined ? { maxEventsPerTick: options.maxEventsPerTick } : {}),
+      ...(options.maxEvents !== undefined ? { maxEvents: options.maxEvents } : {}),
+    });
     const { result, timeSeries } = sim.runToEnd();
     reps.push(result);
     if (timeSeries) series.push(timeSeries);

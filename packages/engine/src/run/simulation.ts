@@ -1,6 +1,6 @@
 import { createDefaultRegistry, type ComponentRegistry } from "../components/index.js";
 import type { ModelDefinition, TimeSeriesConfig } from "../format/index.js";
-import { Kernel, Priority } from "../kernel/index.js";
+import { Kernel, Priority, type KernelLimits } from "../kernel/index.js";
 import type { LinkedComponent, MovingEntity, SimContext } from "../model/index.js";
 import { Rng } from "../rng/index.js";
 import type { ReplicationResult, TimeSeriesReplication } from "./results.js";
@@ -20,6 +20,7 @@ export class Simulation {
    * @param seed the seed for this replication
    * @param index replication index (recorded in results)
    * @param timeSeries optional sampling configuration
+   * @param limits optional safety limits (see {@link KernelLimits})
    */
   constructor(
     model: ModelDefinition,
@@ -27,10 +28,11 @@ export class Simulation {
     readonly index = 0,
     timeSeries: TimeSeriesConfig | null = null,
     registry: ComponentRegistry = createDefaultRegistry(),
+    limits: KernelLimits = {},
   ) {
     this.model = model;
     this.registry = registry;
-    this.kernel = new Kernel(model.settings.ticksPerSecond);
+    this.kernel = new Kernel(model.settings.ticksPerSecond, limits);
     let nextId = 0;
     const kernel = this.kernel;
     const ctx: SimContext = {

@@ -21,6 +21,7 @@
     "@chronon-sim/cli": "workspace:*",
     "@chronon-sim/sdk": "workspace:*",
     "@types/node": "^22.0.0",
+    "fast-check": "^4.10.2",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
   }

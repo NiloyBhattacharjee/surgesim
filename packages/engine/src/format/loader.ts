@@ -284,7 +284,8 @@ function loadSettings(
       for (const k of Object.keys(ts)) if (k !== "interval" && k !== "outputs") e(`timeSeries.${k}`, "unknown field");
       if (!finite(interval) || interval <= 0) e("timeSeries.interval", "must be a number > 0");
       else if (duration / interval > 1_000_000) e("timeSeries.interval", "too small: more than 1,000,000 samples");
-      if (!Array.isArray(outputs) || outputs.length === 0 || !outputs.every((o) => typeof o === "string")) {
+      // Array.from visits holes in sparse arrays (every() would skip them), so a hole counts as "not a string".
+      if (!Array.isArray(outputs) || outputs.length === 0 || !Array.from(outputs as unknown[]).every((o) => typeof o === "string")) {
         e("timeSeries.outputs", 'must be a non-empty array of output ids like "queue.QueueLength"');
       } else if (finite(interval) && interval > 0) {
         timeSeries = { interval, outputs: outputs as string[] };
