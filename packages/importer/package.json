@@ -1,6 +1,6 @@
 {
   "name": "@chronon-sim/importer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Import AWS CloudFormation / CDK-synthesized templates as Chronon Sim models. No Node or DOM APIs.",
   "keywords": [
     "simulation",

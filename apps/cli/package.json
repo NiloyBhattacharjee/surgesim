@@ -1,6 +1,6 @@
 {
   "name": "@chronon-sim/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The chronon command-line tool: run Chronon Sim models, enforce capacity thresholds in CI, write HTML reports, compare runs, import CloudFormation/CDK.",
   "keywords": [
     "simulation",

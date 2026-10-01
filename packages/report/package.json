@@ -1,6 +1,6 @@
 {
   "name": "@chronon-sim/report",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Self-contained HTML reports (inline SVG charts, no external assets) and run comparisons from Chronon Sim results. No Node or DOM APIs.",
   "keywords": [
     "simulation",
