@@ -12,9 +12,12 @@ import {
 } from "@chronon-sim/engine";
 import type { Clock, FileStore, Logger } from "@chronon-sim/platform";
 import { formatAssertions, formatReport, timeSeriesCsv } from "./report.js";
-import { EXIT_INVALID_MODEL, EXIT_USAGE, loadModelSource } from "./source.js";
+import { renderReport } from "@chronon-sim/report";
+import { runCompare, runReport } from "./compare.js";
+import { EXIT_ASSERTION_FAILED, EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE } from "./exit.js";
+import { loadModelSource } from "./source.js";
 
-export { EXIT_INVALID_MODEL, EXIT_USAGE };
+export { EXIT_ASSERTION_FAILED, EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE };
 
 /** Host services the CLI needs; the real binary supplies Node implementations. */
 export interface CliHost {
@@ -25,13 +28,11 @@ export interface CliHost {
   importModule?: (path: string) => Promise<unknown>;
 }
 
-/** Exit codes. */
-export const EXIT_OK = 0;
-/** The run completed but at least one assertion failed (use this to fail a CI job). */
-export const EXIT_ASSERTION_FAILED = 3;
 
 const USAGE = `Usage:
-  chronon run <model.json> [--seed N] [--replications N] [--assert EXPR]... [--timeseries out.csv] [--json out.json]
+  chronon run <model> [--seed N] [--replications N] [--assert EXPR]... [--html report.html] [--timeseries out.csv] [--json out.json]
+  chronon report <results.json|model> --html report.html     Render an HTML report from saved results
+  chronon compare <a> <b> --html compare.html                Compare two runs (results files or models)
   chronon compile <model.ts|.js|.json> [--out model.json]   Build a model module to the JSON format
   chronon schema            Print the component schemas as JSON
 
@@ -45,6 +46,9 @@ Options:
                       Exit code 3 if any assertion fails, including those in the model's "assertions".
   --timeseries FILE   Write sampled outputs over time to a CSV file
   --json FILE         Write the full results object to a JSON file
+  --html FILE         Write a self-contained HTML report (charts, assertions, tables); for report/compare too
+  --title TEXT        (report/compare) Override the page title
+  --label-a/--label-b (compare) Names for the two sides (default: the file names)
   --out FILE          (compile) Write the JSON model to a file instead of stdout
   -h, --help          Show this help`;
 
@@ -88,6 +92,10 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
         json: { type: "string" },
         assert: { type: "string", multiple: true },
         out: { type: "string" },
+        html: { type: "string" },
+        title: { type: "string" },
+        "label-a": { type: "string" },
+        "label-b": { type: "string" },
         help: { type: "boolean", short: "h" },
       },
     });
@@ -106,6 +114,45 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
   if (command === "schema") {
     logger.info(JSON.stringify(createDefaultRegistry().schemas().map(describeSchema), null, 2));
     return EXIT_OK;
+  }
+
+  if (command === "report") {
+    if (modelPath === undefined || positionals.length > 2) {
+      logger.error(`error: expected "chronon report <results.json|model> --html report.html"
+
+${USAGE}`);
+      return EXIT_USAGE;
+    }
+    return runReport(modelPath, { html: values.html, title: values.title }, host);
+  }
+
+  if (command === "compare") {
+    if (positionals.length !== 3) {
+      logger.error(`error: expected "chronon compare <a> <b> --html compare.html"
+
+${USAGE}`);
+      return EXIT_USAGE;
+    }
+    const cSeed = parseIntOption("seed", values.seed, 0);
+    const cReps = parseIntOption("replications", values.replications, 1);
+    for (const v of [cSeed, cReps]) {
+      if (typeof v === "string") {
+        logger.error(`error: ${v}`);
+        return EXIT_USAGE;
+      }
+    }
+    return runCompare(
+      [positionals[1] as string, positionals[2] as string],
+      {
+        html: values.html,
+        labelA: values["label-a"],
+        labelB: values["label-b"],
+        title: values.title,
+        ...(typeof cSeed === "number" ? { seed: cSeed } : {}),
+        ...(typeof cReps === "number" ? { replications: cReps } : {}),
+      },
+      host,
+    );
   }
 
   if (command === "compile") {
@@ -186,6 +233,10 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
     if (values.timeseries !== undefined) {
       await fs.writeText(values.timeseries, timeSeriesCsv(results));
       logger.info(`Wrote time series to ${values.timeseries}`);
+    }
+    if (values.html !== undefined) {
+      await fs.writeText(values.html, renderReport(results));
+      logger.info(`Wrote report to ${values.html}`);
     }
     if (values.json !== undefined) {
       await fs.writeText(values.json, JSON.stringify(results, null, 2) + "\n");

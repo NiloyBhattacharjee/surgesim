@@ -9,6 +9,7 @@ export default defineConfig({
       "@chronon-sim/engine": src("./packages/engine/src/index.ts"),
       "@chronon-sim/platform": src("./packages/platform/src/index.ts"),
       "@chronon-sim/sdk": src("./packages/sdk/src/index.ts"),
+      "@chronon-sim/report": src("./packages/report/src/index.ts"),
     },
   },
   test: {

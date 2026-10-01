@@ -4,12 +4,19 @@
   "description": "The chronon command-line runner for Chronon Sim models.",
   "license": "Apache-2.0",
   "type": "module",
-  "bin": { "chronon": "./dist/bin.js" },
+  "bin": {
+    "chronon": "./dist/bin.js"
+  },
   "main": "./dist/main.js",
-  "files": ["dist"],
-  "engines": { "node": ">=20" },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@chronon-sim/engine": "workspace:*",
-    "@chronon-sim/platform": "workspace:*"
+    "@chronon-sim/platform": "workspace:*",
+    "@chronon-sim/report": "workspace:*"
   }
 }

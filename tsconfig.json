@@ -4,6 +4,7 @@
     { "path": "packages/engine" },
     { "path": "packages/platform" },
     { "path": "packages/sdk" },
+    { "path": "packages/report" },
     { "path": "apps/cli" }
   ]
 }

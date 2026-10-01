@@ -274,3 +274,86 @@ describe("model modules (.ts/.js built with the SDK)", () => {
     expect({ ...compiled, components: byName(compiled.components) }).toEqual({ ...expected, components: byName(expected.components) });
   });
 });
+
+describe("HTML reports and comparisons", () => {
+  const modelJson = (workers: number, name = "report model") =>
+    JSON.stringify({
+      version: 1,
+      name,
+      settings: { duration: 200, replications: 3, seed: 4, timeSeries: { interval: 20, outputs: ["q.QueueLength", "pool.BusyWorkers"] } },
+      components: [
+        { type: "EntityGenerator", name: "gen", inputs: { interArrivalTime: { dist: "exponential", mean: 0.5 } }, links: { next: "q" } },
+        { type: "Queue", name: "q" },
+        { type: "WorkerPool", name: "pool", inputs: { concurrency: workers, serviceTime: { dist: "exponential", mean: 1 } }, links: { queue: "q", next: "sink" } },
+        { type: "EntitySink", name: "sink" },
+      ],
+      assertions: [{ output: "sink.mean", op: "<", value: 1000 }],
+    });
+
+  it("run --html writes a self-contained report", async () => {
+    const h = harness({ m: modelJson(3) });
+    expect(await h.call(["run", "m", "--html", "out/report.html"])).toBe(EXIT_OK);
+    const html = h.fs.files.get("out/report.html")!;
+    expect(html.startsWith("<!doctype html>")).toBe(true);
+    expect(html).toContain("<h1>report model</h1>");
+    expect(html).toContain("1 passed, 0 failed");
+    expect(h.stdout.join("\n")).toContain("Wrote report to out/report.html");
+  });
+
+  it("report renders saved results (from --json) without re-running", async () => {
+    const h = harness({ m: modelJson(3) });
+    expect(await h.call(["run", "m", "--json", "out/r.json"])).toBe(EXIT_OK);
+    const h2 = harness({ "r.json": h.fs.files.get("out/r.json")! });
+    expect(await h2.call(["report", "r.json", "--html", "out/report.html", "--title", "Saved run"])).toBe(EXIT_OK);
+    expect(h2.fs.files.get("out/report.html")).toContain("<h1>Saved run</h1>");
+  });
+
+  it("report without --html, with a missing file, or on an unsupported results file fails clearly", async () => {
+    const h = harness({ m: modelJson(3), bad: JSON.stringify({ resultsVersion: 9, outputs: [], settings: {} }) });
+    expect(await h.call(["report", "m"])).toBe(EXIT_USAGE);
+    expect(h.stderr.join("\n")).toContain("needs --html");
+    expect(await h.call(["report", "nope.json", "--html", "o.html"])).toBe(EXIT_USAGE);
+    expect(await h.call(["report", "bad", "--html", "o.html"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("resultsVersion 1");
+  });
+
+  it("compare runs two models, summarises what differs and writes the HTML", async () => {
+    const h = harness({ a: modelJson(3, "three"), b: modelJson(1, "one") });
+    expect(await h.call(["compare", "a", "b", "--label-a", "3 workers", "--label-b", "1 worker", "--html", "out/cmp.html"])).toBe(EXIT_OK);
+    const out = h.stdout.join("\n");
+    expect(out).toContain("Compared 3 workers with 1 worker");
+    expect(out).toMatch(/sink\.mean: [\d.]+ -> [\d.]+ \(\+[\d.]+%\)/);
+    // The summary leads with the biggest relative change.
+    const pcts = [...out.matchAll(/\(([+-][\d.e+]+)%\)/g)].map((m) => Math.abs(Number(m[1])));
+    expect(pcts.length).toBeGreaterThan(1);
+    expect(pcts).toEqual([...pcts].sort((x, y) => y - x));
+    const html = h.fs.files.get("out/cmp.html")!;
+    expect(html).toContain("<h1>3 workers vs 1 worker</h1>");
+    expect(html).toContain("differs (intervals do not overlap)");
+  });
+
+  it("compare accepts saved results files and defaults labels to the file names", async () => {
+    const run = async (model: string) => {
+      const h = harness({ m: model });
+      await h.call(["run", "m", "--json", "r.json"]);
+      return h.fs.files.get("r.json")!;
+    };
+    const h = harness({ "base.json": await run(modelJson(3)), "candidate.json": await run(modelJson(1)) });
+    expect(await h.call(["compare", "base.json", "candidate.json", "--html", "c.html"])).toBe(EXIT_OK);
+    expect(h.fs.files.get("c.html")).toContain("<h1>base vs candidate</h1>");
+  });
+
+  it("compare disambiguates identical labels and needs exactly two inputs", async () => {
+    const h = harness({ "x/m.json": modelJson(3), "y/m.json": modelJson(2) });
+    expect(await h.call(["compare", "x/m.json", "y/m.json", "--html", "c.html"])).toBe(EXIT_OK);
+    expect(h.fs.files.get("c.html")).toContain("m (A) vs m (B)");
+    expect(await h.call(["compare", "x/m.json"])).toBe(EXIT_USAGE);
+    expect(await h.call(["compare", "a", "b", "c"])).toBe(EXIT_USAGE);
+  });
+
+  it("compare --seed/--replications override the runs of model inputs", async () => {
+    const h = harness({ a: modelJson(3), b: modelJson(1) });
+    expect(await h.call(["compare", "a", "b", "--replications", "2", "--html", "c.html"])).toBe(EXIT_OK);
+    expect(h.fs.files.get("c.html")).toContain("2 replications");
+  });
+});

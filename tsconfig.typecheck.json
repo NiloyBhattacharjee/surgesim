@@ -9,7 +9,8 @@
     "paths": {
       "@chronon-sim/engine": ["./packages/engine/src/index.ts"],
       "@chronon-sim/platform": ["./packages/platform/src/index.ts"],
-      "@chronon-sim/sdk": ["./packages/sdk/src/index.ts"]
+      "@chronon-sim/sdk": ["./packages/sdk/src/index.ts"],
+      "@chronon-sim/report": ["./packages/report/src/index.ts"]
     }
   },
   "include": ["packages/*/src", "packages/*/test", "apps/*/src", "apps/*/test", "vitest.config.ts"]

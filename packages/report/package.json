@@ -1,0 +1,17 @@
+{
+  "name": "@chronon-sim/report",
+  "version": "0.1.0",
+  "description": "Self-contained HTML reports (inline SVG charts, no external assets) from Chronon Sim run results. No Node or DOM APIs.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "dependencies": {
+    "@chronon-sim/engine": "workspace:*"
+  }
+}

@@ -3,9 +3,25 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "lib": ["ES2022"],
-    "types": ["node"]
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src"],
-  "references": [{ "path": "../../packages/engine" }, { "path": "../../packages/platform" }]
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../packages/engine"
+    },
+    {
+      "path": "../../packages/platform"
+    },
+    {
+      "path": "../../packages/report"
+    }
+  ]
 }

@@ -1,9 +1,7 @@
 import { loadModel, type ModelDefinition, type ValidationError } from "@chronon-sim/engine";
 import type { FileStore } from "@chronon-sim/platform";
 
-/** Exit codes shared by the commands (see main.ts). */
-export const EXIT_INVALID_MODEL = 1;
-export const EXIT_USAGE = 2;
+import { EXIT_INVALID_MODEL, EXIT_USAGE } from "./exit.js";
 
 /** Extensions loaded as code (a module exporting a model) rather than parsed as JSON. */
 const MODULE_EXT = /\.(?:[cm]?[jt]s)$/i;

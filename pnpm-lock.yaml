@@ -32,10 +32,19 @@ importers:
       '@chronon-sim/platform':
         specifier: workspace:*
         version: link:../../packages/platform
+      '@chronon-sim/report':
+        specifier: workspace:*
+        version: link:../../packages/report
 
   packages/engine: {}
 
   packages/platform: {}
+
+  packages/report:
+    dependencies:
+      '@chronon-sim/engine':
+        specifier: workspace:*
+        version: link:../engine
 
   packages/sdk: {}
 
