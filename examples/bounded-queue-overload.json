@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "name": "Bounded queue under overload: M/M/2/50 drops what it cannot hold",
+  "description": "Offered load is 5/s against 2 servers at 0.5 s each (capacity 4/s), so the system is permanently overloaded. The queue holds at most 50 entities and drops the rest (queue.NumberDropped); latency is bounded by the buffer (about 50 / 4 = 12.5 s) instead of growing without limit. Compare with an unbounded queue by deleting maxLength.",
+  "settings": { "duration": 600, "warmUp": 60, "seed": 8, "replications": 5, "timeSeries": { "interval": 10, "outputs": ["queue.QueueLength", "server.Utilisation"] } },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "traffic",
+      "inputs": { "interArrivalTime": { "dist": "exponential", "mean": 0.2 } },
+      "links": { "next": "queue" }
+    },
+    { "type": "Queue", "name": "queue", "inputs": { "maxLength": 50 } },
+    {
+      "type": "Server",
+      "name": "server",
+      "inputs": { "capacity": 2, "serviceTime": { "dist": "exponential", "mean": 0.5 } },
+      "links": { "queue": "queue", "next": "sink" }
+    },
+    { "type": "EntitySink", "name": "sink" }
+  ]
+}

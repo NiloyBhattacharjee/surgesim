@@ -17,7 +17,31 @@ thresholds fail the build in CI.
 | Compare two designs | `chronon compare a.json b.json --html diff.html` |
 | Write models as code | the [TypeScript SDK](docs/sdk.md) or the [Python SDK](sdks/python/README.md) |
 | Start from real infrastructure | `chronon import cdk.out/Stack.template.json` ([docs](docs/importing.md)) |
+| Fit inputs from your real metrics and check the model against them | `chronon fit`, `fit-arrivals`, `calibrate` ([docs](docs/calibration.md)) |
 | Try it without installing | the [browser demo](docs/browser-demo.md): the engine in a Web Worker, one HTML file |
+
+## Where this is useful
+
+It answers "what happens if..." questions about **queues, limits and timing**, which are hard to reason about by hand
+and easy to get wrong in production.
+
+| Situation | The question | What to look at |
+|---|---|---|
+| Launch or sale traffic | Can we survive 5x traffic? | peak queue length, p99, throttled share |
+| Choosing a Lambda concurrency limit | What avoids throttling without paying for idle capacity? | `ThrottleFraction`, `ColdStarts`, `Cost` |
+| Sizing an SQS consumer | How many workers keep the backlog under 5 minutes at peak? | `AverageQueueTime`, `Backlog` over time |
+| Visibility timeout bugs | Why are messages processed twice? | `NumberRedelivered`, `StaleAcks`, dead letters |
+| Retry storms | Do our retries make a slow dependency worse? | `RetryAmplification` |
+| Autoscaling tuning | Does scaling react fast enough to a sudden spike? | p99 and backlog during the spike |
+| Cost versus latency | Is the cheaper, slower instance type good enough? | `chronon compare`: cost, p99, verdicts |
+| Rate limit design | What burst size protects the backend without rejecting too much? | `RejectionFraction`, backend utilisation |
+| Capacity gates | Fail a pull request if p99 under load passes 2 s | `--assert`, exit code 3 |
+| Reviewing infrastructure changes | Does this CDK change alter capacity? | `chronon import` before and after, then `compare` |
+
+**Not a good fit:** anything it does not model (databases, caches, network hops, load balancers, DynamoDB throttling,
+batching, FIFO queues, multi-region), questions about why your code is slow (service time is an *input*), correlated
+failures such as a bad deploy, very low-traffic systems where capacity is not the problem, and any case where you have
+no data and would be inventing the traffic and timings.
 
 ## Acknowledgement
 
@@ -43,6 +67,9 @@ chronon report <results.json|model> --html report.html       render an HTML repo
 chronon compare <a> <b> --html compare.html                  compare two runs (results files or models)
 chronon compile <model.ts|.js|.json> [--out model.json]      build a model module to the JSON format
 chronon import <template.json> [--out model.json] [--rate N] [--service-time MEAN] [--entry ID]...
+chronon fit <data.csv> [--column NAME] [--scale K]           fit a distribution to measured durations
+chronon fit-arrivals <timestamps.csv> --window S             fit an arrival rate profile from request timestamps
+chronon calibrate <model> --observed observed.json           compare a model with what the real system measured
 chronon schema                                               component schemas as JSON
 ```
 
@@ -120,8 +147,14 @@ prints the machine-readable form.
 | [`examples/serverless-cold-start.json`](examples/serverless-cold-start.json) | a function with a concurrency limit, cold starts and idle reclaim; a 5x spike throttles calls that retry with jittered backoff |
 | [`examples/retry-storm.json`](examples/retry-storm.json) | a flaky, nearly-saturated dependency with immediate retries amplifies its own load (`RetryAmplification`) |
 | [`examples/autoscaled-service.json`](examples/autoscaled-service.json) | a queue-fed service under a 4x spike: autoscaler, pricing, and SLO/budget assertions that fail the run (exit 3) if scaling is too slow |
+| [`examples/rate-limited-api.json`](examples/rate-limited-api.json) | a token-bucket limiter sheds an 80/s burst (about 25% rejected) so the worker pool behind it barely throttles |
+| [`examples/bounded-queue-overload.json`](examples/bounded-queue-overload.json) | M/M/2/50 under permanent overload: the bounded queue drops excess arrivals and latency stays capped near 12 s |
+| [`examples/two-stage-pipeline.json`](examples/two-stage-pipeline.json) | parse then enrich: the slower stage (about 88% utilised) holds the backlog and sets end-to-end p95; gated by an assertion |
+| [`examples/diurnal-autoscaling-cost.json`](examples/diurnal-autoscaling-cost.json) | a compressed daily traffic cycle with an autoscaler held near 50% utilisation, showing provisioned cost versus backlog |
+| [`examples/stress/month-instance-m.json`](examples/stress/month-instance-m.json), [`-t.json`](examples/stress/month-instance-t.json) | a 30-day stress test (20 million requests, about 35 s per run): a general-purpose fleet versus a cheaper, slower burstable one under a daily/weekly cycle. Kept out of the top level because the test suite runs every example there |
 | [`examples/sdk/autoscaled-service.ts`](examples/sdk/autoscaled-service.ts) | the same system written with the TypeScript SDK |
 | [`examples/cloudformation/orders-stack.template.json`](examples/cloudformation/orders-stack.template.json) | a CDK-style template (SQS + DLQ + Lambda + ECS + autoscaling + API Gateway throttle) for `chronon import` |
+| [`examples/calibration/`](examples/calibration/README.md) | **synthetic** monitoring data with a known ground truth, to try `fit`, `fit-arrivals` and `calibrate` |
 
 ## Architecture
 
@@ -131,15 +164,17 @@ apps/cli ──► engine ◄── report ◄── apps/demo (engine + report 
    │            └─────── (types only)
    ├──► platform           interfaces only: FileStore, Logger, Clock
    ├──► sdk ◄── importer   no runtime dependencies
+   ├──► calibrate          fit distributions and rates from data, compare with observations
    └──► report, importer
 
 sdks/python                standalone; emits the same JSON
+validation/                an independent simulator (SimPy) and the synthetic data generator
 ```
 
 - **`@chronon-sim/engine`**: no DOM, no Node APIs, no runtime dependencies. Everything platform-specific sits behind
   the interfaces in **`@chronon-sim/platform`**, so the engine runs in Node and in a Web Worker.
-- **`@chronon-sim/sdk`**, **`report`**, **`importer`**: also free of Node and DOM APIs. Only `apps/cli` touches the
-  file system, the process and dynamic `import()`.
+- **`@chronon-sim/sdk`**, **`report`**, **`importer`**, **`calibrate`**: also free of Node and DOM APIs. Only
+  `apps/cli` touches the file system, the process and dynamic `import()`.
 
 Inside the engine, each layer depends only on those below it:
 
@@ -182,13 +217,25 @@ and asserts that 95% confidence intervals contain the closed-form results:
 - **Hand-calculable timelines**: visibility-timeout redelivery and dead-lettering, backoff delays and jitter means,
   cold-start counts, token-bucket throughput, autoscaler step times, cost arithmetic.
 
+- **An independent simulator**: six scenarios (M/M/1, M/M/5, lognormal and heavy-tailed service, a bounded queue under
+  overload, a traffic spike) run through both Chronon Sim and SimPy, which uses a different clock and a different method
+  for time-varying arrivals. All 53 compared metrics agree, and the check is shown to have teeth: a model with a service
+  time only 4% off is detected. See [docs/calibration.md](docs/calibration.md).
+
 It also tests the things around the engine: SDK output against the hand-written examples (exact JSON match), Python
-against TypeScript, report and CLI behaviour, and **embeddability**: a static scan of the engine, SDK, report and
-importer for Node/DOM APIs, plus running the worker bundle in a bare `vm` context with no Node globals and requiring
-byte-identical output to Node. See [docs/browser-demo.md](docs/browser-demo.md).
+against TypeScript, report and CLI behaviour, **property-based tests** (the heap sorts, events run in the documented
+order, no request is ever lost, and 100,000 randomly mutated models never crash or hang; this found and fixed four real
+bugs, see [docs/testing.md](docs/testing.md)), and **embeddability**: a static scan of the engine, SDK, report,
+importer and calibration packages for Node/DOM APIs, plus running the worker bundle in a bare `vm` context with no Node
+globals and requiring byte-identical output to Node. See [docs/browser-demo.md](docs/browser-demo.md).
 
 A 95% CI misses the truth 5% of the time by construction. The tests use fixed seeds, so they are deterministic rather
 than flaky, but they are a statistical check, not a proof.
+
+**Calibration against real systems.** The calibration tools were validated on synthetic data with a known ground truth,
+which showed that the engine is right but that fitted inputs carry error that queueing near capacity amplifies. The
+tools therefore report how detectable an error is and how sensitive each result is to its inputs. They have not yet
+been run on production data.
 
 ## Development
 
@@ -211,6 +258,8 @@ pnpm demo          # build and serve the browser demo (pnpm demo:build writes ap
 | [docs/reports.md](docs/reports.md) | HTML reports and comparisons |
 | [docs/importing.md](docs/importing.md) | importing CloudFormation and CDK |
 | [docs/browser-demo.md](docs/browser-demo.md) | the browser demo and how embeddability is proven |
+| [docs/calibration.md](docs/calibration.md) | fitting inputs from measurements, comparing with observations, and what the validation showed |
+| [docs/testing.md](docs/testing.md) | the test layers, property-based tests, CI, and how to reproduce a failure |
 
 ## Limits and next steps
 
@@ -220,11 +269,16 @@ calibrate them against real metrics before trusting a conclusion.
 
 Not built yet:
 
-- Publishing: nothing is on npm or PyPI, so `npx chronon` does not work; there is no CI workflow file in the repo.
+- Publishing: nothing is on npm or PyPI, so `npx chronon` does not work. The packages are prepared and a publishing
+  dry run passes, but publishing needs your npm account.
+- Real-data calibration: the fitting and comparison tools exist but have only been exercised on synthetic data.
+- CI: the workflows exist (Node 20 and 22 on Linux, macOS and Windows; Python 3.9 to 3.13) but their macOS and Linux
+  cells only run on GitHub, so they had not been observed when this was written.
 - Importer: JSON templates only (no YAML), and only SQS, Lambda, ECS services, Application Auto Scaling target tracking
   and API Gateway throttling.
 - Components: no DynamoDB, SNS fan-out, load balancers, FIFO queues, batching, step scaling or multi-region.
-- Distributions are specified, not fitted from data; there is no expression language and no richer unit system.
+- Distributions are fitted one at a time from independent samples; there is no mixture model, expression language or
+  richer unit system.
 - Reports do not yet embed a model diff or per-replication drill-downs, and "differs" in a comparison is a conservative
   confidence-interval overlap check, not a formal hypothesis test.
 

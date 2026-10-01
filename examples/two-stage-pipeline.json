@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "name": "Two-stage pipeline: the slower stage sets the throughput",
+  "description": "Jobs pass through a parse stage (3 workers, mean 0.2 s, capacity 15/s) and then an enrich stage (4 workers, mean 0.5 s, capacity 8/s) at an offered 7/s. Enrich runs at about 88% utilisation and holds almost all of the backlog (enrich_queue.AverageQueueLength), while parse is nearly idle: adding workers to parse would change nothing. The assertion gates end-to-end p95.",
+  "settings": { "duration": 900, "warmUp": 60, "seed": 13, "replications": 5, "timeSeries": { "interval": 10, "outputs": ["parse_queue.QueueLength", "enrich_queue.QueueLength"] } },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "jobs",
+      "inputs": { "mode": "rateProfile", "rateProfile": [[0, 7]] },
+      "links": { "next": "parse_queue" }
+    },
+    { "type": "Queue", "name": "parse_queue" },
+    {
+      "type": "Server",
+      "name": "parse",
+      "inputs": { "capacity": 3, "serviceTime": { "dist": "exponential", "mean": 0.2 } },
+      "links": { "queue": "parse_queue", "next": "enrich_queue" }
+    },
+    { "type": "Queue", "name": "enrich_queue" },
+    {
+      "type": "Server",
+      "name": "enrich",
+      "inputs": { "capacity": 4, "serviceTime": { "dist": "exponential", "mean": 0.5 } },
+      "links": { "queue": "enrich_queue", "next": "sink" }
+    },
+    { "type": "EntitySink", "name": "sink" }
+  ],
+  "assertions": [
+    { "name": "end-to-end p95 under 5 s", "output": "sink.p95", "op": "<=", "value": 5 }
+  ]
+}

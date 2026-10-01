@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "name": "Daily traffic cycle: autoscaled fleet versus its cost",
+  "description": "A compressed 'day' (1200 s) with a quiet night, a morning ramp, a midday peak and an evening decline feeds a queue-fed pool that an autoscaler holds near 50% utilisation. pool.Cost counts provisioned worker-seconds, so the cost of the scaling policy is visible next to the backlog it permits. Try a larger scaleDownCooldown or minConcurrency to trade cost for headroom.",
+  "settings": { "duration": 1200, "warmUp": 0, "seed": 34, "replications": 3, "timeSeries": { "interval": 20, "outputs": ["queue.QueueLength", "pool.Concurrency", "pool.BusyWorkers"] } },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "traffic",
+      "inputs": { "mode": "rateProfile", "rateProfile": [[0, 5], [300, 20], [450, 60], [750, 60], [900, 20], [1050, 5]] },
+      "links": { "next": "queue" }
+    },
+    { "type": "Queue", "name": "queue" },
+    {
+      "type": "WorkerPool",
+      "name": "pool",
+      "inputs": {
+        "concurrency": 4,
+        "serviceTime": { "dist": "lognormal", "mean": 0.4, "stdDev": 0.2 },
+        "costPerProvisionedSecond": 0.0001
+      },
+      "links": { "queue": "queue", "next": "sink" }
+    },
+    {
+      "type": "Autoscaler",
+      "name": "scaler",
+      "inputs": { "targetUtilisation": 0.5, "evaluationInterval": 10, "minConcurrency": 4, "maxConcurrency": 60, "scaleUpDelay": 5, "scaleDownCooldown": 60 },
+      "links": { "target": "pool" }
+    },
+    { "type": "EntitySink", "name": "sink" }
+  ],
+  "assertions": [
+    { "name": "p99 under 10 s", "output": "sink.p99", "op": "<=", "value": 10 }
+  ]
+}

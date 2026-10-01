@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "Rate-limited API: a token bucket sheds a burst before it reaches the workers",
+  "description": "Steady 20/s traffic jumps to 80/s for one minute. The limiter allows 40/s sustained with a burst of 100, so about a quarter of all requests are rejected (limiter.RejectionFraction) and the 25 workers at 0.5 s each (capacity 50/s) throttle only about 1.6% (pool.ThrottleFraction). Raise the limiter rate to 80 to see the pool throttle heavily instead.",
+  "settings": { "duration": 300, "warmUp": 20, "seed": 5, "replications": 5, "timeSeries": { "interval": 5, "outputs": ["limiter.Tokens", "pool.BusyWorkers", "limiter.NumberRejected"] } },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "traffic",
+      "inputs": { "mode": "rateProfile", "rateProfile": [[0, 20], [100, 80], [160, 20]] },
+      "links": { "next": "limiter" }
+    },
+    {
+      "type": "RateLimiter",
+      "name": "limiter",
+      "inputs": { "rate": 40, "burst": 100 },
+      "links": { "next": "pool", "onReject": "rejected" }
+    },
+    {
+      "type": "WorkerPool",
+      "name": "pool",
+      "inputs": { "concurrency": 25, "serviceTime": { "dist": "exponential", "mean": 0.5 } },
+      "links": { "next": "ok", "onThrottle": "throttled" }
+    },
+    { "type": "EntitySink", "name": "ok" },
+    { "type": "EntitySink", "name": "rejected" },
+    { "type": "EntitySink", "name": "throttled" }
+  ]
+}

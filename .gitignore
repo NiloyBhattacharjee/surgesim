@@ -25,3 +25,28 @@ Thumbs.db
 __pycache__/
 *.pyc
 *.egg-info/
+
+# packed packages, caches and tool output that should never be committed
+*.tgz
+.pnpm-store/
+.cache/
+.turbo/
+.eslintcache
+.vitest/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# python environments and caches
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+
+# local scratch files
+*.tmp
+*.bak
+*.stackdump
+desktop.ini
