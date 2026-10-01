@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { Clock, FileStore, Logger } from "@chronon-sim/platform";
 
 /** FileStore backed by the Node file system. */
@@ -34,4 +35,9 @@ export class NodeClock implements Clock {
   nowMs(): number {
     return performance.now();
   }
+}
+
+/** Import a model module from a file path (Node resolves the module's own imports, e.g. @chronon-sim/sdk). */
+export function importModule(path: string): Promise<unknown> {
+  return import(pathToFileURL(resolve(path)).href);
 }

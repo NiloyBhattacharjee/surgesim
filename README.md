@@ -35,6 +35,7 @@ named `chronon` on the registry, which is a publishing decision for later.)
 
 ```
 chronon run <model.json> [--seed N] [--replications N] [--assert "sink.p99<=2"]... [--timeseries out.csv] [--json out.json]
+chronon compile <model.ts|.js|.json> [--out model.json]   # build a model module to the JSON format
 chronon schema        # component schemas as JSON
 ```
 
@@ -47,6 +48,21 @@ error: model.json failed validation with 2 errors:
 ```
 
 Exit codes: `0` ok, `1` invalid model / malformed JSON, `2` usage or I/O error, `3` an assertion failed.
+
+### Writing models in TypeScript
+
+Models can be code instead of JSON: [docs/sdk.md](docs/sdk.md). `chronon run model.ts` runs it (Node 22.18+ for
+TypeScript; or compile to `.js`), and `chronon compile` emits the validated JSON contract.
+
+```ts
+import { Model, dist } from "@chronon-sim/sdk";
+const model = new Model("api", { duration: 600, replications: 5 });
+const sink = model.entitySink("ok");
+const pool = model.workerPool("pool", { concurrency: 50, serviceTime: dist.lognormal(0.5, 0.25), next: sink });
+model.entityGenerator("traffic", { interArrivalTime: dist.exponential(0.02), next: pool });
+model.assert(sink.output("p99"), "<=", 2);
+export default model;
+```
 
 ### Capacity gates in CI
 

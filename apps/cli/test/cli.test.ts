@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { Model, dist } from "@chronon-sim/sdk";
 import type { FileStore, Logger } from "@chronon-sim/platform";
 import { EXIT_ASSERTION_FAILED, EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE, parseAssertion, runCli } from "../src/main.js";
 
@@ -19,7 +20,7 @@ class MemoryFiles implements FileStore {
   }
 }
 
-function harness(initial: Record<string, string> = {}) {
+function harness(initial: Record<string, string> = {}, importModule?: (path: string) => Promise<unknown>) {
   const fs = new MemoryFiles();
   for (const [k, v] of Object.entries(initial)) fs.files.set(k, v);
   const stdout: string[] = [];
@@ -31,7 +32,7 @@ function harness(initial: Record<string, string> = {}) {
     error: (m) => stderr.push(m),
   };
   let t = 0;
-  const call = (args: string[]) => runCli(args, { fs, logger, clock: { nowMs: () => (t += 10) } });
+  const call = (args: string[]) => runCli(args, { fs, logger, clock: { nowMs: () => (t += 10) }, ...(importModule ? { importModule } : {}) });
   return { fs, stdout, stderr, call };
 }
 
@@ -183,5 +184,93 @@ describe("assertions", () => {
     expect(parseAssertion("a.b<3")).toEqual({ output: "a.b", op: "<", value: 3 });
     expect(typeof parseAssertion("a.b@median<3")).toBe("string");
     expect(typeof parseAssertion("a.b<")).toBe("string");
+  });
+});
+
+describe("model modules (.ts/.js built with the SDK)", () => {
+  const sdkModel = () => {
+    const m = new Model("from sdk", { duration: 100, replications: 2, seed: 1 });
+    const sink = m.entitySink("sink");
+    const pool = m.workerPool("pool", { concurrency: 5, serviceTime: 1, next: sink });
+    m.entityGenerator("gen", { interArrivalTime: dist.constant(1), next: pool });
+    m.assert(sink.output("mean"), "<=", 1.5);
+    return m;
+  };
+
+  it("runs a module whose default export is an SDK Model, including its assertions", async () => {
+    const h = harness({}, async () => ({ default: sdkModel() }));
+    expect(await h.call(["run", "model.ts"])).toBe(EXIT_OK);
+    const out = h.stdout.join("\n");
+    expect(out).toContain("Model: from sdk");
+    expect(out).toContain("PASS  sink.mean (mean) = 1 <= 1.5");
+  });
+
+  it("accepts a named `model` export holding a plain model object", async () => {
+    const plain = sdkModel().toJSON();
+    const h = harness({}, async () => ({ model: plain }));
+    expect(await h.call(["run", "model.mjs"])).toBe(EXIT_OK);
+  });
+
+  it("a module with no model export is an invalid model (exit 1)", async () => {
+    const h = harness({}, async () => ({ other: 1 }));
+    expect(await h.call(["run", "model.js"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("default export");
+  });
+
+  it("an SDK build error is reported with its structured problems (exit 1)", async () => {
+    const a = new Model("a", { duration: 1 });
+    const foreign = new Model("b", { duration: 1 }).entitySink("sink");
+    a.entityGenerator("gen", { interArrivalTime: 1, next: foreign });
+    const h = harness({}, async () => ({ default: a }));
+    expect(await h.call(["run", "bad.ts"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("[gen.next]");
+  });
+
+  it("engine validation still applies to SDK models (exit 1)", async () => {
+    const m = new Model("bad", { duration: 10 });
+    m.workerPool("pool", { concurrency: 0, serviceTime: 1 });
+    const h = harness({}, async () => ({ default: m }));
+    expect(await h.call(["run", "bad.ts"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("[pool.concurrency] must be >= 1");
+  });
+
+  it("a host that cannot import modules gives a usage error", async () => {
+    const h = harness();
+    expect(await h.call(["run", "model.ts"])).toBe(EXIT_USAGE);
+    expect(h.stderr.join("\n")).toContain("cannot run model modules");
+  });
+
+  it("an import failure is a usage error, with a hint for .ts files on old Node", async () => {
+    const h = harness({}, async () => {
+      throw Object.assign(new Error('Unknown file extension ".ts"'), { code: "ERR_UNKNOWN_FILE_EXTENSION" });
+    });
+    expect(await h.call(["run", "model.ts"])).toBe(EXIT_USAGE);
+    expect(h.stderr.join("\n")).toContain("Node 22.18+");
+  });
+
+  it("compile prints or writes the JSON model", async () => {
+    const h = harness({}, async () => ({ default: sdkModel() }));
+    expect(await h.call(["compile", "model.ts"])).toBe(EXIT_OK);
+    expect(JSON.parse(h.stdout.join("\n"))).toEqual(sdkModel().toJSON());
+    const h2 = harness({}, async () => ({ default: sdkModel() }));
+    expect(await h2.call(["compile", "model.ts", "--out", "out/model.json"])).toBe(EXIT_OK);
+    expect(JSON.parse(h2.fs.files.get("out/model.json")!)).toEqual(sdkModel().toJSON());
+  });
+
+  it("compile refuses an invalid model instead of emitting it", async () => {
+    const m = new Model("bad", { duration: 10 });
+    m.workerPool("pool", { concurrency: 0, serviceTime: 1 });
+    const h = harness({}, async () => ({ default: m }));
+    expect(await h.call(["compile", "bad.ts"])).toBe(EXIT_INVALID_MODEL);
+  });
+
+  it("the TypeScript example compiles to the same model as the JSON example", async () => {
+    const file = fileURLToPath(new URL("../../../examples/sdk/autoscaled-service.ts", import.meta.url));
+    const h = harness({}, (path) => import(/* @vite-ignore */ path));
+    expect(await h.call(["compile", file])).toBe(EXIT_OK);
+    const compiled = JSON.parse(h.stdout.join("\n"));
+    const expected = JSON.parse(readFileSync(join(examplesDir, "autoscaled-service.json"), "utf8"));
+    const byName = (cs: { name: string }[]) => Object.fromEntries(cs.map((c) => [c.name, c]));
+    expect({ ...compiled, components: byName(compiled.components) }).toEqual({ ...expected, components: byName(expected.components) });
   });
 });

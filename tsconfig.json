@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/engine" },
     { "path": "packages/platform" },
+    { "path": "packages/sdk" },
     { "path": "apps/cli" }
   ]
 }

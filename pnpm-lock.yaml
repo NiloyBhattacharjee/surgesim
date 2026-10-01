@@ -11,6 +11,9 @@ importers:
       '@chronon-sim/cli':
         specifier: workspace:*
         version: link:apps/cli
+      '@chronon-sim/sdk':
+        specifier: workspace:*
+        version: link:packages/sdk
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.4
@@ -33,6 +36,8 @@ importers:
   packages/engine: {}
 
   packages/platform: {}
+
+  packages/sdk: {}
 
 packages:
 

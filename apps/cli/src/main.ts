@@ -6,31 +6,36 @@ import {
   defaultTimeSeries,
   describeSchema,
   isKnownOutputId,
-  loadModel,
   runModel,
   type AssertionDefinition,
   type RunOptions,
 } from "@chronon-sim/engine";
 import type { Clock, FileStore, Logger } from "@chronon-sim/platform";
 import { formatAssertions, formatReport, timeSeriesCsv } from "./report.js";
+import { EXIT_INVALID_MODEL, EXIT_USAGE, loadModelSource } from "./source.js";
+
+export { EXIT_INVALID_MODEL, EXIT_USAGE };
 
 /** Host services the CLI needs; the real binary supplies Node implementations. */
 export interface CliHost {
   fs: FileStore;
   logger: Logger;
   clock: Clock;
+  /** Import a model module (.js/.mjs/.ts...). Without it only .json models can be run. */
+  importModule?: (path: string) => Promise<unknown>;
 }
 
 /** Exit codes. */
 export const EXIT_OK = 0;
-export const EXIT_INVALID_MODEL = 1;
-export const EXIT_USAGE = 2;
 /** The run completed but at least one assertion failed (use this to fail a CI job). */
 export const EXIT_ASSERTION_FAILED = 3;
 
 const USAGE = `Usage:
   chronon run <model.json> [--seed N] [--replications N] [--assert EXPR]... [--timeseries out.csv] [--json out.json]
+  chronon compile <model.ts|.js|.json> [--out model.json]   Build a model module to the JSON format
   chronon schema            Print the component schemas as JSON
+
+A <model> is a .json file, or a .js/.ts module whose default export is a model built with @chronon-sim/sdk.
 
 Options:
   --seed N            Override the model's base seed
@@ -40,6 +45,7 @@ Options:
                       Exit code 3 if any assertion fails, including those in the model's "assertions".
   --timeseries FILE   Write sampled outputs over time to a CSV file
   --json FILE         Write the full results object to a JSON file
+  --out FILE          (compile) Write the JSON model to a file instead of stdout
   -h, --help          Show this help`;
 
 const NUMBER = String.raw`-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?`;
@@ -81,6 +87,7 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
         timeseries: { type: "string" },
         json: { type: "string" },
         assert: { type: "string", multiple: true },
+        out: { type: "string" },
         help: { type: "boolean", short: "h" },
       },
     });
@@ -101,8 +108,33 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
     return EXIT_OK;
   }
 
+  if (command === "compile") {
+    if (modelPath === undefined || positionals.length > 2) {
+      logger.error(`error: expected "chronon compile <model.ts|model.js|model.json> [--out model.json]"\n\n${USAGE}`);
+      return EXIT_USAGE;
+    }
+    const compiled = await loadModelSource(modelPath, host);
+    if (!compiled.ok) {
+      logger.error(`error: ${compiled.message}`);
+      return compiled.code;
+    }
+    const text = JSON.stringify(compiled.json, null, 2) + "\n";
+    if (values.out === undefined) {
+      logger.info(text.trimEnd());
+      return EXIT_OK;
+    }
+    try {
+      await fs.writeText(values.out, text);
+    } catch (e) {
+      logger.error(`error: cannot write ${values.out}: ${(e as Error).message}`);
+      return EXIT_USAGE;
+    }
+    logger.info(`Wrote ${values.out}`);
+    return EXIT_OK;
+  }
+
   if (command !== "run" || modelPath === undefined || positionals.length > 2) {
-    logger.error(`error: expected "chronon run <model.json>"\n\n${USAGE}`);
+    logger.error(`error: expected "chronon run <model>"\n\n${USAGE}`);
     return EXIT_USAGE;
   }
 
@@ -115,29 +147,10 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
     }
   }
 
-  let text: string;
-  try {
-    text = await fs.readText(modelPath);
-  } catch (e) {
-    logger.error(`error: cannot read ${modelPath}: ${(e as Error).message}`);
-    return EXIT_USAGE;
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(text);
-  } catch (e) {
-    logger.error(`error: ${modelPath} is not valid JSON: ${(e as Error).message}`);
-    return EXIT_INVALID_MODEL;
-  }
-
-  const loaded = loadModel(json);
+  const loaded = await loadModelSource(modelPath, host);
   if (!loaded.ok) {
-    const lines = loaded.errors.map((e) => {
-      const where = [e.component, e.key].filter((x) => x !== null).join(".");
-      return `  - ${where ? `[${where}] ` : ""}${e.message}`;
-    });
-    logger.error(`error: ${modelPath} failed validation with ${loaded.errors.length} error${loaded.errors.length === 1 ? "" : "s"}:\n${lines.join("\n")}`);
-    return EXIT_INVALID_MODEL;
+    logger.error(`error: ${loaded.message}`);
+    return loaded.code;
   }
   const model = loaded.model;
 
