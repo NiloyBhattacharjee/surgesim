@@ -1,6 +1,6 @@
 {
   "name": "@chronon-sim/calibrate",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Calibrate Chronon Sim models against real data: fit distributions and arrival rates from measurements, and compare model results with observed metrics. No Node or DOM APIs.",
   "keywords": [
     "simulation",

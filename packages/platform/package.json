@@ -1,6 +1,6 @@
 {
   "name": "@chronon-sim/platform",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Interfaces for everything environment-specific in Chronon Sim (file I/O, logging, wall clock). Interfaces only, no runtime code.",
   "keywords": [
     "simulation",
