@@ -183,7 +183,7 @@ apps/cli ──► engine ◄── report ◄── apps/demo (engine + report 
    └──► report, importer
 
 sdks/python                standalone; emits the same JSON
-validation/                an independent simulator (SimPy) and the synthetic data generator
+validation/                an independent simulator (SimPy), the synthetic data generator, and a real test service
 ```
 
 - **`@chronon-sim/engine`**: no DOM, no Node APIs, no runtime dependencies. Everything platform-specific sits behind
@@ -249,8 +249,10 @@ than flaky, but they are a statistical check, not a proof.
 
 **Calibration against real systems.** The calibration tools were validated on synthetic data with a known ground truth,
 which showed that the engine is right but that fitted inputs carry error that queueing near capacity amplifies. The
-tools therefore report how detectable an error is and how sensitive each result is to its inputs. They have not yet
-been run on production data.
+tools therefore report how detectable an error is and how sensitive each result is to its inputs. They have since been
+run against a real measured program (a small queueing service, `validation/real-system/`; see
+[docs/calibration.md](docs/calibration.md)), which found and led to the fix of a bug that synthetic data had hidden. They
+have not yet been run on production data.
 
 ## Development
 
@@ -287,7 +289,8 @@ Not built yet:
 
 - PyPI: the Python SDK is not published yet (the npm packages are, and releases are automated; see
   [docs/releasing.md](docs/releasing.md)).
-- Real-data calibration: the fitting and comparison tools exist but have only been exercised on synthetic data.
+- Real-data calibration: the fitting and comparison tools have been exercised on synthetic data and on one small real
+  program (two 10-minute runs), not on production traffic.
 - CI: the workflows exist (Node 20 and 22 on Linux, macOS and Windows; Python 3.9 to 3.13) but their macOS and Linux
   cells only run on GitHub, so they had not been observed when this was written.
 - Importer: JSON templates only (no YAML), and only SQS, Lambda, ECS services, Application Auto Scaling target tracking

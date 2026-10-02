@@ -93,6 +93,16 @@ jobs:
             echo "::error::The NPM_TOKEN secret is not set. See docs/releasing.md, 'One-time setup'."
             exit 1
           fi
+          # A token pasted with a trailing newline or space is not a legal HTTP header value, and npm then fails with
+          # the unhelpful "*** is not a legal HTTP header value" (this is what stopped v0.1.1). The token itself is
+          # never printed; only its length and whether it has an invalid character.
+          # (A "case" pattern is used, not grep, because grep works line by line and would accept a trailing newline.)
+          case "$NPM_TOKEN" in
+            *[!A-Za-z0-9_-]*)
+              echo "::error::The NPM_TOKEN secret contains a character that is not valid in a token (a trailing newline, space or carriage return is the usual cause; its length is ${#NPM_TOKEN}). Set it again without trailing whitespace. See docs/releasing.md."
+              exit 1
+              ;;
+          esac
 
       # pnpm skips any package whose version is already on npm, so re-running a release that stopped half way
       # publishes only what is missing instead of failing.

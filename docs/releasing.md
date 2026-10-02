@@ -20,6 +20,14 @@ The release job needs permission to publish as you, through an npm access token 
    ```
    and paste the token when asked.
 
+   **The secret must contain only the token, with no trailing newline, space or carriage return.** A stray one makes the
+   publish fail with `npm error *** is not a legal HTTP header value` (this is what stopped the first v0.1.1 attempt).
+   On Windows PowerShell, copy the token and set the secret from the clipboard with the whitespace trimmed:
+   ```powershell
+   $t = (Get-Clipboard).Trim(); gh secret set NPM_TOKEN --repo NiloyBhattacharjee/chronon-sim --body $t; Remove-Variable t
+   ```
+   The release job checks the secret's format before publishing and says so if it is wrong.
+
 The token is never printed in logs. If it leaks, revoke it on npmjs.com and create a new one.
 
 ## Making a release

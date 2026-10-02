@@ -273,6 +273,86 @@ describe("fitArrivalProfile", () => {
   });
 });
 
+/**
+ * Regression for a bug found on a real measured run (validation/real-system): traffic that was Poisson at 8, then
+ * 11 (a 37% rise for 120 s), then 8 per second was reported as ONE segment with a "bursty" warning. The dispersion
+ * estimate included the unmodelled step, which widened the noise allowance, which merged the step away, which
+ * raised the dispersion again.
+ *
+ * These are statistical properties, so each is checked over many independent seeded samples. A single sample is a
+ * poor test of a change-point estimate: where a step is placed is uncertain by the noise in the counts, and one
+ * unlucky draw can move it by tens of seconds. Measured when this was written, over 60 samples, the previous algorithm
+ * found the 8, 11, 8 pattern in 18 (window 5 s) to 54 (window 30 s) and split steady traffic in up to 27% of runs.
+ */
+describe("fitArrivalProfile does not lose a step to its own dispersion estimate", () => {
+  const trials = 30;
+  const cases: { label: string; profile: [number, number][]; end: number }[] = [
+    { label: "8, 11, 8 per second (a 37% rise for 120 s)", profile: [[0, 8], [300, 11], [420, 8]], end: 600 },
+    { label: "8, 20, 8 per second (a 150% rise)", profile: [[0, 8], [300, 20], [600, 8]], end: 900 },
+  ];
+  for (const { label, profile, end } of cases) {
+    for (const windowSeconds of [5, 10, 20, 30]) {
+      it(`${label}: finds three segments with the right rates and breakpoints, window ${windowSeconds} s`, () => {
+        let three = 0;
+        let ratesRight = 0;
+        let looksPoisson = 0;
+        const breakpointErrors: number[] = [];
+        for (let seed = 0; seed < trials; seed++) {
+          const arrivals = poissonArrivals(profile, end, new Rng(1000 + seed, `step-${label}-${windowSeconds}`));
+          const fit = fitArrivalProfile(arrivals, { windowSeconds, start: 0, end });
+          if (fit.rateProfile.length !== 3) continue;
+          three++;
+          if (profile.every(([, rate], i) => Math.abs((fit.rateProfile[i] as [number, number])[1] / rate - 1) < 0.08)) ratesRight++;
+          // The traffic is Poisson inside each segment, and the step must not be mistaken for burstiness.
+          if (fit.dispersionIndex > 0.6 && fit.dispersionIndex < 1.5 && fit.warnings.length === 0) looksPoisson++;
+          profile.slice(1).forEach(([start], i) => breakpointErrors.push(Math.abs((fit.rateProfile[i + 1] as [number, number])[0] - start)));
+        }
+        expect(three).toBeGreaterThanOrEqual(Math.ceil(trials * 0.85));
+        expect(ratesRight).toBeGreaterThanOrEqual(three - 2);
+        expect(looksPoisson).toBeGreaterThanOrEqual(three - 2);
+        breakpointErrors.sort((a, b) => a - b);
+        expect(breakpointErrors[Math.floor(breakpointErrors.length / 2)] as number).toBeLessThan(5); // median error, seconds
+        expect(breakpointErrors[Math.floor(breakpointErrors.length * 0.9)] as number).toBeLessThan(20); // 90th percentile
+      });
+    }
+  }
+
+  it("steady Poisson traffic is almost never split (false-positive rate)", () => {
+    let split = 0;
+    let runs = 0;
+    for (const windowSeconds of [5, 10, 30]) {
+      for (let seed = 0; seed < 100; seed++, runs++) {
+        const arrivals = poissonArrivals([[0, 9]], 600, new Rng(2000 + seed, `flat-${windowSeconds}`));
+        if (fitArrivalProfile(arrivals, { windowSeconds, start: 0, end: 600 }).rateProfile.length > 1) split++;
+      }
+    }
+    expect(split / runs).toBeLessThan(0.06); // measured: 1% to 3%
+  });
+
+  it("a rise smaller than the merge tolerance is treated as noise", () => {
+    const arrivals = poissonArrivals([[0, 10], [300, 11]], 600, new Rng(41, "small"));
+    expect(fitArrivalProfile(arrivals, { windowSeconds: 20, start: 0, end: 600 }).rateProfile).toHaveLength(1);
+  });
+
+  it("bursty traffic with a rate step: finds the step AND reports the burstiness", () => {
+    let found = 0;
+    let flagged = 0;
+    const attempts = 40;
+    for (let seed = 0; seed < attempts; seed++) {
+      const rng = new Rng(3000 + seed, "burst-step");
+      const centres = poissonArrivals([[0, 1], [300, 1.6]], 600, rng);
+      const arrivals = centres.flatMap((c) => Array.from({ length: 4 }, () => c + rng.nextFloat() * 0.2)).sort((a, b) => a - b);
+      const fit = fitArrivalProfile(arrivals, { windowSeconds: 20, start: 0, end: 600 });
+      if (fit.rateProfile.length !== 2) continue;
+      found++;
+      // Clusters of 4 make counts about 4 times as variable as Poisson.
+      if (fit.dispersionIndex > 2.5 && fit.dispersionIndex < 6 && fit.warnings.join(" ").includes("burstier than Poisson")) flagged++;
+    }
+    expect(found).toBeGreaterThanOrEqual(Math.ceil(attempts * 0.8)); // measured: 93%
+    expect(flagged).toBeGreaterThanOrEqual(found - 2);
+  });
+});
+
 describe("parseColumn", () => {
   it("reads a CSV by header name (case-insensitive) and ignores the other columns", () => {
     const r = parseColumn("time,Latency_ms,status\n1,120,200\n2,95,200\n3,300,500\n", { column: "latency_ms" });

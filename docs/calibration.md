@@ -70,10 +70,12 @@ misrepresent), when values are negative or zero (some families are skipped), and
 
 ### `chronon fit-arrivals`
 
-Counts arrivals in windows and merges neighbouring windows that cannot be told apart statistically, so noise does not
-produce a jagged profile but a real change (a spike, a daily cycle) does produce a new segment. A window that straddles
-a step is recognised and the breakpoint is placed inside it. On the example (truth: 8/s, then 20/s from 300 s, then 8/s
-from 600 s):
+Counts arrivals in windows and finds the best split into constant-rate segments with an optimal change-point search
+(a penalised Poisson likelihood solved over the whole series at once, not a left-to-right comparison). Noise does not
+produce a jagged profile, but a real change (a spike, a daily cycle) does produce a new segment, and a change smaller than
+`--merge-tolerance` (15% by default) is ignored. Each breakpoint is then placed from the raw timestamps, not only at a
+window edge, and each rate is the observed count in its segment, so the profile reproduces the observed number of
+arrivals exactly. On the example (truth: 8/s, then 20/s from 300 s, then 8/s from 600 s):
 
 ```
 from (s)    per second
@@ -83,8 +85,18 @@ from (s)    per second
 ```
 
 It also reports a **dispersion index**: about 1 means Poisson-like arrivals, which is what the model assumes. A value well
-above 1 means bursty traffic, and a Poisson model will understate queueing and tail latency. The segmentation allows for
-that burstiness instead of mistaking bursts for rate changes.
+above 1 means bursty traffic, and a Poisson model will understate queueing and tail latency. It is measured on short
+bins around the fitted profile, so a rate change that the profile captures does not count as burstiness. The same
+burstiness is estimated, in a way a rate step cannot inflate, to widen the noise allowance, so bursts are not mistaken
+for rate changes.
+
+> **A bug this caught (fixed).** Run on a real measured service (section 4), the first version reported Poisson traffic
+> at 8, then 11, then 8 requests per second as one segment with dispersion 5. It estimated the burstiness from the
+> data including the step, which widened the noise allowance, which merged the step away, which raised the estimate
+> again. It now gives 8.10, 11.15 and 7.84 per second with breakpoints at 299 s and 421 s (truth 300 s and 420 s) and
+> dispersion 1.01, at every window size from 5 s to 30 s. Over 60 simulated samples per window size, the old code found
+> the three segments in 18 (5 s window) to 54 (30 s) and split steady traffic in up to 27% of runs; the new code finds them
+> in 57 to 59 and splits steady traffic in 1% to 3%. The tests check these properties over many seeds.
 
 ### `chronon calibrate`
 
@@ -140,7 +152,27 @@ So three honest rules follow:
 3. **Passing is not proof.** It means the model is consistent with the data it was built from. Check it on a period it
    was not fitted on.
 
-## 4. Pitfalls with real data
+## 4. Checked against a real (small) system
+
+`validation/real-system/` contains a real queueing service (an HTTP server with 4 workers and a FIFO queue, doing timed
+work), a Poisson load generator and a log summariser; see its README. The procedure is the one above: fit a model from
+one run (A) and check it against a second, separate run (B) of the same load plan (8, then 11, then 8 requests per
+second for 10 minutes). Two runs, no failed requests. This is a program on one laptop, not production traffic.
+
+- **Service time:** `fit` chose lognormal decisively (KS 0.010, p 0.65) and recovered mean 0.3059 s and standard
+  deviation 0.1486 s (set: 0.30 and 0.15; the measured mean was 0.306, about 2% above the set value because of timer
+  lateness).
+- **Arrivals:** the model built from the (fixed) `fit-arrivals` output matched run B on all 6 outputs: utilisation within
+  1.2%, mean latency within 8% and p50 within 2%, with p95, p99 and the average queue length 21%, 39% and 45% higher than
+  measured but inside the model's expected range for one period (run B's spike was milder than a typical one).
+- **One run cannot tell a good model from a flawed one.** The same real system gave p99 1.36 s and an average queue of
+  0.76 in run A, but 0.99 s and 0.59 in run B. A model that ignores the spike entirely passed run B (it passed by
+  luck: B's spike happened to be mild) and was rejected by run A on 3 of 6 outputs. The tool prints its detection limit
+  (22% to 47% of the model value for the noisiest output with one period) for this reason. More periods narrow it.
+- **Queue length is the most sensitive output.** A 5% error in the arrival rate or in every service time moves the
+  average queue length by 54% to 86%.
+
+## 5. Pitfalls with real data
 
 - **Fit service time from processing time, not end-to-end latency.** End-to-end latency already includes waiting; fitting
   it as a service time double counts queueing and makes the model far too pessimistic.

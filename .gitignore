@@ -45,6 +45,9 @@ venv/
 .ruff_cache/
 build/
 
+# raw logs from the real-system validation runs
+validation/real-system/runs/
+
 # local scratch files
 *.tmp
 *.bak
