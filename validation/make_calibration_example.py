@@ -1,6 +1,6 @@
 """Generate a synthetic "monitoring export" to demonstrate the calibration workflow.
 
-This is NOT real production data. A small ground-truth system is simulated once with SimPy (independent of Chronon
+This is NOT real production data. A small ground-truth system is simulated once with SimPy (independent of Surgesim
 Sim), and three files are written that look like what a monitoring tool would give you:
 
   arrivals.csv        one ISO timestamp per request                     (like a request log)

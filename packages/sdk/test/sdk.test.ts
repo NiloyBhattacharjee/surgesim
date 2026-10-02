@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createDefaultRegistry, loadModel, runModel } from "@chronon-sim/engine";
+import { createDefaultRegistry, loadModel, runModel } from "@surgesim/engine";
 import { Model, ModelBuildError, SPECS, dist, poissonArrivals, time } from "../src/index.js";
 
 const example = (file: string): unknown => JSON.parse(readFileSync(fileURLToPath(new URL(`../../../examples/${file}`, import.meta.url)), "utf8"));

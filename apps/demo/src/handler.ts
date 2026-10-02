@@ -1,5 +1,5 @@
-import { loadModel, runModel, type RunResults } from "@chronon-sim/engine";
-import { renderReport } from "@chronon-sim/report";
+import { loadModel, runModel, type RunResults } from "@surgesim/engine";
+import { renderReport } from "@surgesim/report";
 
 /** A request from the page to the worker. */
 export interface RunRequest {

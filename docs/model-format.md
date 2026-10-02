@@ -1,4 +1,4 @@
-# Chronon Sim model format — version 1
+# Surgesim model format — version 1
 
 The JSON model format is the stable contract between model authoring (hand-written JSON, the future
 TypeScript/Python SDKs, CDK importers) and simulation engines (the TypeScript engine today, possibly
@@ -76,7 +76,7 @@ A `sampler` input accepts either a number (a constant) or a distribution object:
 
 ## Component types (phase 1: generic components)
 
-`chronon schema` prints these schemas as machine-readable JSON; it is the source of truth.
+`surgesim schema` prints these schemas as machine-readable JSON; it is the source of truth.
 
 ### `EntityGenerator` — role `source`
 | Input | Type | Default | |
@@ -252,7 +252,7 @@ because an event that far away simply never happens during the run.
 
 ## Results
 
-`chronon run --json` writes a `RunResults` object (`resultsVersion: 1`): the settings used, one summary
+`surgesim run --json` writes a `RunResults` object (`resultsVersion: 1`): the settings used, one summary
 per output (`mean`, `stdDev`, `ci95: {low, high, halfWidth}`, `n`), the raw per-replication values, and
 the optional time series. The 95% CI uses Student's t over replications and is `null` for a single
 replication. Undefined values (e.g. percentiles of an empty sink) are `null`.

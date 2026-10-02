@@ -2,11 +2,11 @@
 
 ```bash
 cdk synth                                     # writes cdk.out/<Stack>.template.json
-chronon import cdk.out/OrdersStack.template.json --out model.json --rate 50 --service-time 0.3
-chronon run model.json --html report.html
+surgesim import cdk.out/OrdersStack.template.json --out model.json --rate 50 --service-time 0.3
+surgesim run model.json --html report.html
 ```
 
-`chronon import` reads a CloudFormation **JSON** template (what CDK writes to `cdk.out/*.template.json`; YAML templates
+`surgesim import` reads a CloudFormation **JSON** template (what CDK writes to `cdk.out/*.template.json`; YAML templates
 are not supported, convert with `cfn-flip`) and produces a model in the [JSON format](model-format.md). It never emits a
 model the engine would reject.
 

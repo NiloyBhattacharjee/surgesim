@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "Month-long instance comparison: m",
-  "description": "A general-purpose fleet: 8 workers at 0.35 s per request, flat price. Run next to stress/month-instance-t.json with chronon compare to see cost and tail latency over 30 days (about 2.6 million simulated seconds, tens of millions of requests: this is a stress test of the engine).",
+  "description": "A general-purpose fleet: 8 workers at 0.35 s per request, flat price. Run next to stress/month-instance-t.json with surgesim compare to see cost and tail latency over 30 days (about 2.6 million simulated seconds, tens of millions of requests: this is a stress test of the engine).",
   "settings": {
     "duration": 2592000,
     "warmUp": 86400,

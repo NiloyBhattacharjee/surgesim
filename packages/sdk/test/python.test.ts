@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createDefaultRegistry, loadModel, runModel } from "@chronon-sim/engine";
+import { createDefaultRegistry, loadModel, runModel } from "@surgesim/engine";
 import { Model, dist, poissonArrivals, time } from "../src/index.js";
 
 /**

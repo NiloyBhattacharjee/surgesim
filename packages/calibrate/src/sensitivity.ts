@@ -1,4 +1,4 @@
-import type { ComponentDefinition, ModelDefinition } from "@chronon-sim/engine";
+import type { ComponentDefinition, ModelDefinition } from "@surgesim/engine";
 
 type Json = Record<string, unknown>;
 

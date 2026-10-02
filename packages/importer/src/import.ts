@@ -1,4 +1,4 @@
-import { Component, Model, dist, type ModelJson, type Sampler } from "@chronon-sim/sdk";
+import { Component, Model, dist, type ModelJson, type Sampler } from "@surgesim/sdk";
 import { collectRefs, isRecord, resolveNumber, resolveString, stripCdkHash, type Json } from "./intrinsics.js";
 
 /** What to assume where a template is silent. A template describes infrastructure, not traffic or code. */
@@ -101,7 +101,7 @@ function parseJsonish(v: Json): Json {
 
 /**
  * Convert a CloudFormation template (JSON, as `cdk synth` writes to `cdk.out/*.template.json`) into a
- * Chronon Sim model.
+ * Surgesim model.
  *
  * Mapped: `AWS::SQS::Queue` (visibility timeout, redrive policy and dead-letter queue) to MessageQueue;
  * `AWS::Lambda::Function` (reserved concurrency) to WorkerPool, wired to its queue through

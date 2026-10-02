@@ -1,10 +1,10 @@
 # HTML reports and comparisons
 
 ```bash
-chronon run model.json --html report.html                 # run, then write the report
-chronon run model.json --json results.json                # save results...
-chronon report results.json --html report.html            # ...render them later, without re-running
-chronon compare base.json candidate.json --html diff.html # two results files, or two models (they are run first)
+surgesim run model.json --html report.html                 # run, then write the report
+surgesim run model.json --json results.json                # save results...
+surgesim report results.json --html report.html            # ...render them later, without re-running
+surgesim compare base.json candidate.json --html diff.html # two results files, or two models (they are run first)
 ```
 
 A report is **one self-contained HTML file**: inline CSS, inline SVG charts, one small inline script for hover.
@@ -44,7 +44,7 @@ same times.
 
 ## Embedding
 
-`@chronon-sim/report` is plain TypeScript with no Node or DOM APIs: `renderReport(results)` and
+`@surgesim/report` is plain TypeScript with no Node or DOM APIs: `renderReport(results)` and
 `renderComparison({label, results}, {label, results})` return strings. Use them in a build step, a server, or in the
 browser (see the demo).
 

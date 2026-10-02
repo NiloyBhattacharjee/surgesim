@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadModel, runModel, type RunResults } from "@chronon-sim/engine";
+import { loadModel, runModel, type RunResults } from "@surgesim/engine";
 import { computeDeltas, renderComparison, renderReport } from "../src/index.js";
 
 type Comp = { type: string; name: string; inputs?: object; links?: object };

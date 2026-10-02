@@ -9,10 +9,10 @@ import {
   runModel,
   type AssertionDefinition,
   type RunOptions,
-} from "@chronon-sim/engine";
-import type { Clock, FileStore, Logger } from "@chronon-sim/platform";
+} from "@surgesim/engine";
+import type { Clock, FileStore, Logger } from "@surgesim/platform";
 import { formatAssertions, formatReport, timeSeriesCsv } from "./report.js";
-import { renderReport } from "@chronon-sim/report";
+import { renderReport } from "@surgesim/report";
 import { runCalibrate, runFit, runFitArrivals } from "./calibrate.js";
 import { runCompare, runReport } from "./compare.js";
 import { runImport } from "./import.js";
@@ -32,18 +32,18 @@ export interface CliHost {
 
 
 const USAGE = `Usage:
-  chronon run <model> [--seed N] [--replications N] [--assert EXPR]... [--html report.html] [--timeseries out.csv] [--json out.json]
-  chronon report <results.json|model> --html report.html     Render an HTML report from saved results
-  chronon compare <a> <b> --html compare.html                Compare two runs (results files or models)
-  chronon import <template.json> [--out model.json] [--rate N] [--service-time MEAN] [--entry ID]...
+  surgesim run <model> [--seed N] [--replications N] [--assert EXPR]... [--html report.html] [--timeseries out.csv] [--json out.json]
+  surgesim report <results.json|model> --html report.html     Render an HTML report from saved results
+  surgesim compare <a> <b> --html compare.html                Compare two runs (results files or models)
+  surgesim import <template.json> [--out model.json] [--rate N] [--service-time MEAN] [--entry ID]...
                             Convert a CloudFormation / CDK template (cdk.out/*.template.json) to a model
-  chronon fit <data.csv> [--column NAME] [--scale K]       Fit a distribution to measured durations
-  chronon fit-arrivals <timestamps.csv> --window S         Fit an arrival rate profile from request timestamps
-  chronon calibrate <model> --observed observed.json       Compare a model with what the real system measured
-  chronon compile <model.ts|.js|.json> [--out model.json]   Build a model module to the JSON format
-  chronon schema            Print the component schemas as JSON
+  surgesim fit <data.csv> [--column NAME] [--scale K]       Fit a distribution to measured durations
+  surgesim fit-arrivals <timestamps.csv> --window S         Fit an arrival rate profile from request timestamps
+  surgesim calibrate <model> --observed observed.json       Compare a model with what the real system measured
+  surgesim compile <model.ts|.js|.json> [--out model.json]   Build a model module to the JSON format
+  surgesim schema            Print the component schemas as JSON
 
-A <model> is a .json file, or a .js/.ts module whose default export is a model built with @chronon-sim/sdk.
+A <model> is a .json file, or a .js/.ts module whose default export is a model built with @surgesim/sdk.
 
 Options:
   --seed N            Override the model's base seed
@@ -153,7 +153,7 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
 
   if (command === "import") {
     if (modelPath === undefined || positionals.length > 2) {
-      logger.error(`error: expected "chronon import <template.json> [--out model.json]"
+      logger.error(`error: expected "surgesim import <template.json> [--out model.json]"
 
 ${USAGE}`);
       return EXIT_USAGE;
@@ -201,7 +201,7 @@ ${USAGE}`);
 
   if (command === "fit" || command === "fit-arrivals" || command === "calibrate") {
     if (modelPath === undefined || positionals.length > 2) {
-      logger.error(`error: expected "chronon ${command} <file>"
+      logger.error(`error: expected "surgesim ${command} <file>"
 
 ${USAGE}`);
       return EXIT_USAGE;
@@ -226,7 +226,7 @@ ${USAGE}`);
     }
     if (command === "fit-arrivals") {
       if (windowSeconds === undefined) {
-        logger.error('error: "chronon fit-arrivals" needs --window <seconds> (how wide the counting windows are, for example 30)');
+        logger.error('error: "surgesim fit-arrivals" needs --window <seconds> (how wide the counting windows are, for example 30)');
         return EXIT_USAGE;
       }
       return runFitArrivals(modelPath, { column: values.column, scale: scale as number, window: windowSeconds as number, mergeTolerance: mergeTolerance as number | undefined }, host);
@@ -248,7 +248,7 @@ ${USAGE}`);
 
   if (command === "report") {
     if (modelPath === undefined || positionals.length > 2) {
-      logger.error(`error: expected "chronon report <results.json|model> --html report.html"
+      logger.error(`error: expected "surgesim report <results.json|model> --html report.html"
 
 ${USAGE}`);
       return EXIT_USAGE;
@@ -258,7 +258,7 @@ ${USAGE}`);
 
   if (command === "compare") {
     if (positionals.length !== 3) {
-      logger.error(`error: expected "chronon compare <a> <b> --html compare.html"
+      logger.error(`error: expected "surgesim compare <a> <b> --html compare.html"
 
 ${USAGE}`);
       return EXIT_USAGE;
@@ -287,7 +287,7 @@ ${USAGE}`);
 
   if (command === "compile") {
     if (modelPath === undefined || positionals.length > 2) {
-      logger.error(`error: expected "chronon compile <model.ts|model.js|model.json> [--out model.json]"\n\n${USAGE}`);
+      logger.error(`error: expected "surgesim compile <model.ts|model.js|model.json> [--out model.json]"\n\n${USAGE}`);
       return EXIT_USAGE;
     }
     const compiled = await loadModelSource(modelPath, host);
@@ -311,7 +311,7 @@ ${USAGE}`);
   }
 
   if (command !== "run" || modelPath === undefined || positionals.length > 2) {
-    logger.error(`error: expected "chronon run <model>"\n\n${USAGE}`);
+    logger.error(`error: expected "surgesim run <model>"\n\n${USAGE}`);
     return EXIT_USAGE;
   }
 

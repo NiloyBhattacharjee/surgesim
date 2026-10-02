@@ -95,7 +95,7 @@ const PACKAGES = ["engine", "sdk", "report", "importer", "calibrate"];
 describe("embeddable packages use no Node or DOM APIs", () => {
   for (const pkg of PACKAGES) {
     const files = sourceFiles(join(root, "packages", pkg, "src"));
-    it(`@chronon-sim/${pkg} (${files.length} files)`, () => {
+    it(`@surgesim/${pkg} (${files.length} files)`, () => {
       expect(files.length).toBeGreaterThan(0);
       const violations: string[] = [];
       for (const file of files) {

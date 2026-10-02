@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { loadModel, runModel } from "@chronon-sim/engine";
-import { dist } from "@chronon-sim/sdk";
+import { loadModel, runModel } from "@surgesim/engine";
+import { dist } from "@surgesim/sdk";
 import { importCloudFormation, type ImportOptions } from "../src/index.js";
 
 const stack = (): Record<string, any> =>

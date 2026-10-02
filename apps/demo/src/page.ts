@@ -84,11 +84,11 @@ function run(): void {
     showErrors([]);
     frame.srcdoc = r.html;
     download.href = URL.createObjectURL(new Blob([r.html], { type: "text/html" }));
-    download.download = "chronon-report.html";
+    download.download = "surgesim-report.html";
     download.hidden = false;
     const gate = r.assertionsTotal > 0 ? ` · ${r.assertionsTotal - r.assertionsFailed}/${r.assertionsTotal} assertions pass` : "";
     status.textContent = `${r.replications} replication(s), ${r.eventsProcessed.toLocaleString("en-US")} events in ${r.elapsedMs} ms${gate}`;
-    document.title = `Chronon Sim demo: ${r.modelName ?? "run"} done`;
+    document.title = `Surgesim demo: ${r.modelName ?? "run"} done`;
   };
   w.onerror = (e) => {
     runButton.disabled = false;

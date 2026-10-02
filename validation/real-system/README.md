@@ -1,4 +1,4 @@
-# Validating Chronon Sim against a real (small) system
+# Validating Surgesim against a real (small) system
 
 `service.mjs` is a real queueing service (an HTTP server with a concurrency limit and a FIFO queue), `loadgen.mjs`
 drives it with Poisson traffic, and `summarize.mjs` turns its log into the files the calibration commands read. The
@@ -21,11 +21,11 @@ node validation/real-system/summarize.mjs validation/real-system/runs/A/service-
 
 Repeat with `--seed 2` for the service, `--seed 102` for the load and `runs/B/` for the output.
 
-Fit the model inputs from A (use `pnpm chronon` instead of `npx @chronon-sim/cli` inside this repo after `pnpm build`):
+Fit the model inputs from A (use `pnpm surgesim` instead of `npx @surgesim/cli` inside this repo after `pnpm build`):
 
 ```bash
-npx @chronon-sim/cli fit validation/real-system/runs/A/service_times.csv --scale 0.001
-npx @chronon-sim/cli fit-arrivals validation/real-system/runs/A/arrivals.csv --window 30
+npx @surgesim/cli fit validation/real-system/runs/A/service_times.csv --scale 0.001
+npx @surgesim/cli fit-arrivals validation/real-system/runs/A/arrivals.csv --window 30
 ```
 
 Copy `examples/calibration/model.json`, then set `capacity` to 4, `serviceTime` to the fitted distribution,
@@ -33,7 +33,7 @@ Copy `examples/calibration/model.json`, then set `capacity` to 4, `serviceTime` 
 run B while doing this. Then compare:
 
 ```bash
-npx @chronon-sim/cli calibrate my-model.json --observed validation/real-system/runs/B/observed.json --sensitivity 5
+npx @surgesim/cli calibrate my-model.json --observed validation/real-system/runs/B/observed.json --sensitivity 5
 ```
 
 `runs/` is git-ignored.

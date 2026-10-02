@@ -1,4 +1,4 @@
-import { tQuantile975, type RunResults } from "@chronon-sim/engine";
+import { tQuantile975, type RunResults } from "@surgesim/engine";
 
 /** A measured value, optionally with the range it was measured within and its own tolerance. */
 export type ObservedMetric = number | { value: number; low?: number; high?: number; tolerance?: number };

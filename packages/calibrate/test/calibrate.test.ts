@@ -10,7 +10,7 @@ import {
   runModel,
   type ModelDefinition,
   type RunResults,
-} from "@chronon-sim/engine";
+} from "@surgesim/engine";
 import { DataParseError, compareToObserved, erf, fitArrivalProfile, fitSamples, ksPValue, normalCdf, parseColumn, scaleArrivals, scaleSampler, scaleServiceTimes } from "../src/index.js";
 
 const draw = (n: number, next: () => number): number[] => Array.from({ length: n }, next);

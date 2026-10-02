@@ -1,5 +1,5 @@
-import { isKnownOutputId, runModel, type DistributionSpec, type ModelDefinition } from "@chronon-sim/engine";
-import type { FileStore, Logger } from "@chronon-sim/platform";
+import { isKnownOutputId, runModel, type DistributionSpec, type ModelDefinition } from "@surgesim/engine";
+import type { FileStore, Logger } from "@surgesim/platform";
 import {
   DataParseError,
   FAMILIES,
@@ -11,7 +11,7 @@ import {
   parseColumn,
   type Family,
   type ObservedMetrics,
-} from "@chronon-sim/calibrate";
+} from "@surgesim/calibrate";
 import { EXIT_ASSERTION_FAILED, EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE } from "./exit.js";
 import { loadModelSource, type SourceHost } from "./source.js";
 
@@ -54,7 +54,7 @@ export interface FitArgs {
   family: string | undefined;
 }
 
-/** `chronon fit <file>`: fit a distribution to measured durations. */
+/** `surgesim fit <file>`: fit a distribution to measured durations. */
 export async function runFit(path: string, args: FitArgs, host: Host): Promise<number> {
   const { logger } = host;
   const families: Family[] | undefined = args.family === undefined || args.family === "auto" ? undefined : [args.family as Family];
@@ -101,7 +101,7 @@ export interface FitArrivalsArgs {
   mergeTolerance: number | undefined;
 }
 
-/** `chronon fit-arrivals <file>`: turn arrival timestamps into an EntityGenerator rate profile. */
+/** `surgesim fit-arrivals <file>`: turn arrival timestamps into an EntityGenerator rate profile. */
 export async function runFitArrivals(path: string, args: FitArrivalsArgs, host: Host): Promise<number> {
   const { logger } = host;
   const text = await readText(path, host);
@@ -149,11 +149,11 @@ function isObserved(v: unknown): v is ObservedMetrics {
   return typeof metrics === "object" && metrics !== null && !Array.isArray(metrics) && Object.keys(metrics).length > 0;
 }
 
-/** `chronon calibrate <model> --observed observed.json`: compare a model with measurements from the real system. */
+/** `surgesim calibrate <model> --observed observed.json`: compare a model with measurements from the real system. */
 export async function runCalibrate(modelPath: string, args: CalibrateArgs, host: Host): Promise<number> {
   const { logger } = host;
   if (args.observed === undefined) {
-    logger.error('error: "chronon calibrate" needs --observed <file> (a JSON file such as {"metrics": {"sink.p99": 1.2}})');
+    logger.error('error: "surgesim calibrate" needs --observed <file> (a JSON file such as {"metrics": {"sink.p99": 1.2}})');
     return EXIT_USAGE;
   }
   const text = await readText(args.observed, host);

@@ -30,7 +30,7 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       # Python lets the cross-language tests (TypeScript SDK vs Python SDK) run instead of being skipped, and
-      # SimPy is the independent simulator that Chronon Sim's results are cross-checked against.
+      # SimPy is the independent simulator that Surgesim's results are cross-checked against.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -113,5 +113,5 @@ jobs:
           npm init -y > /dev/null
           npm install --no-audit --no-fund "$RUNNER_TEMP"/tarballs/*.tgz
           cp "$GITHUB_WORKSPACE/examples/autoscaled-service.json" .
-          npx chronon run autoscaled-service.json --html report.html
+          npx surgesim run autoscaled-service.json --html report.html
           test -s report.html

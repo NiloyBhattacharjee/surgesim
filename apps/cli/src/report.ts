@@ -1,4 +1,4 @@
-import type { AssertionResult, OutputSummary, RunResults } from "@chronon-sim/engine";
+import type { AssertionResult, OutputSummary, RunResults } from "@surgesim/engine";
 
 function fmt(v: number | null): string {
   if (v === null) return "n/a";

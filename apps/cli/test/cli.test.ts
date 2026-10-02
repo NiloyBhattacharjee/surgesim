@@ -2,8 +2,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { Model, dist } from "@chronon-sim/sdk";
-import type { FileStore, Logger } from "@chronon-sim/platform";
+import { Model, dist } from "@surgesim/sdk";
+import type { FileStore, Logger } from "@surgesim/platform";
 import { EXIT_ASSERTION_FAILED, EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE, parseAssertion, runCli } from "../src/main.js";
 
 const examplesDir = fileURLToPath(new URL("../../../examples/", import.meta.url));
@@ -358,7 +358,7 @@ describe("HTML reports and comparisons", () => {
   });
 });
 
-describe("chronon import (CloudFormation / CDK)", () => {
+describe("surgesim import (CloudFormation / CDK)", () => {
   const template = readFileSync(join(examplesDir, "cloudformation", "orders-stack.template.json"), "utf8");
 
   it("writes a model file, then summarises what it mapped and what it assumed", async () => {

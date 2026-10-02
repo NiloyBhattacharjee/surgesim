@@ -6,9 +6,9 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import chronon_sim  # noqa: E402
-from chronon_sim import Model, ModelBuildError, dist, hours, minutes, ms, poisson_arrivals, seconds  # noqa: E402
-from chronon_sim.model import _camel  # noqa: E402
+import surgesim  # noqa: E402
+from surgesim import Model, ModelBuildError, dist, hours, minutes, ms, poisson_arrivals, seconds  # noqa: E402
+from surgesim.model import _camel  # noqa: E402
 
 EXAMPLES = os.path.join(os.path.dirname(__file__), "..", "..", "..", "examples")
 
@@ -173,13 +173,13 @@ class Helpers(unittest.TestCase):
         self.assertEqual([ms(250), seconds(3), minutes(2), hours(1)], [0.25, 3, 120, 3600])
 
     def test_the_package_exposes_a_version_and_the_format_version(self):
-        self.assertEqual(chronon_sim.MODEL_FORMAT_VERSION, 1)
-        self.assertRegex(chronon_sim.__version__, r"^\d+\.\d+\.\d+$")
+        self.assertEqual(surgesim.MODEL_FORMAT_VERSION, 1)
+        self.assertRegex(surgesim.__version__, r"^\d+\.\d+\.\d+$")
 
 
 class Doctests(unittest.TestCase):
     def test_docstring_examples_run(self):
-        import chronon_sim.model as model_module
+        import surgesim.model as model_module
 
         result = doctest.testmod(model_module)
         self.assertEqual(result.failed, 0)

@@ -1,11 +1,11 @@
-"""An independent reference simulator for cross-checking Chronon Sim.
+"""An independent reference simulator for cross-checking Surgesim.
 
 It models the same basic system (arrivals -> a waiting line -> c identical servers) but is built differently on
 purpose, so that agreement between the two means something:
 
 * the clock and the event handling come from SimPy, a widely used third-party library;
 * time-varying arrivals use *thinning* (Lewis and Shedler): candidate arrivals are generated at the highest rate and
-  each is kept with probability rate(t) / highest_rate. Chronon Sim instead draws piecewise-exponential gaps;
+  each is kept with probability rate(t) / highest_rate. Surgesim instead draws piecewise-exponential gaps;
 * the random numbers come from Python's own generator;
 * every statistic is computed here, from scratch.
 
@@ -67,7 +67,7 @@ class TimeWeighted:
 
 
 def percentile(sorted_values, p):
-    """Linear interpolation between closest ranks (the same definition Chronon Sim reports)."""
+    """Linear interpolation between closest ranks (the same definition Surgesim reports)."""
     n = len(sorted_values)
     if n == 0:
         return None

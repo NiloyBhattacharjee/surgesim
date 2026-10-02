@@ -48,7 +48,7 @@ describe("the built demo", () => {
   let built: { htmlPath: string; workerSource: string; html: string };
 
   beforeAll(async () => {
-    dir = await mkdtemp(join(tmpdir(), "chronon-demo-"));
+    dir = await mkdtemp(join(tmpdir(), "surgesim-demo-"));
     built = await buildDemo({ outDir: dir });
   }, 60_000);
   afterAll(async () => {

@@ -8,10 +8,10 @@ importers:
 
   .:
     devDependencies:
-      '@chronon-sim/cli':
+      '@surgesim/cli':
         specifier: workspace:*
         version: link:apps/cli
-      '@chronon-sim/sdk':
+      '@surgesim/sdk':
         specifier: workspace:*
         version: link:packages/sdk
       '@types/node':
@@ -29,31 +29,31 @@ importers:
 
   apps/cli:
     dependencies:
-      '@chronon-sim/calibrate':
+      '@surgesim/calibrate':
         specifier: workspace:*
         version: link:../../packages/calibrate
-      '@chronon-sim/engine':
+      '@surgesim/engine':
         specifier: workspace:*
         version: link:../../packages/engine
-      '@chronon-sim/importer':
+      '@surgesim/importer':
         specifier: workspace:*
         version: link:../../packages/importer
-      '@chronon-sim/platform':
+      '@surgesim/platform':
         specifier: workspace:*
         version: link:../../packages/platform
-      '@chronon-sim/report':
+      '@surgesim/report':
         specifier: workspace:*
         version: link:../../packages/report
-      '@chronon-sim/sdk':
+      '@surgesim/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
 
   apps/demo:
     dependencies:
-      '@chronon-sim/engine':
+      '@surgesim/engine':
         specifier: workspace:*
         version: link:../../packages/engine
-      '@chronon-sim/report':
+      '@surgesim/report':
         specifier: workspace:*
         version: link:../../packages/report
     devDependencies:
@@ -63,7 +63,7 @@ importers:
 
   packages/calibrate:
     dependencies:
-      '@chronon-sim/engine':
+      '@surgesim/engine':
         specifier: workspace:*
         version: link:../engine
 
@@ -71,7 +71,7 @@ importers:
 
   packages/importer:
     dependencies:
-      '@chronon-sim/sdk':
+      '@surgesim/sdk':
         specifier: workspace:*
         version: link:../sdk
 
@@ -79,7 +79,7 @@ importers:
 
   packages/report:
     dependencies:
-      '@chronon-sim/engine':
+      '@surgesim/engine':
         specifier: workspace:*
         version: link:../engine
 

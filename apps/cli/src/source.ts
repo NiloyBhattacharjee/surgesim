@@ -1,12 +1,12 @@
-import { loadModel, type ModelDefinition, type ValidationError } from "@chronon-sim/engine";
-import type { FileStore } from "@chronon-sim/platform";
+import { loadModel, type ModelDefinition, type ValidationError } from "@surgesim/engine";
+import type { FileStore } from "@surgesim/platform";
 
 import { EXIT_INVALID_MODEL, EXIT_USAGE } from "./exit.js";
 
 /** Extensions loaded as code (a module exporting a model) rather than parsed as JSON. */
 const MODULE_EXT = /\.(?:[cm]?[jt]s)$/i;
 
-/** True if `path` names a code module that exports a model (e.g. built with `@chronon-sim/sdk`). */
+/** True if `path` names a code module that exports a model (e.g. built with `@surgesim/sdk`). */
 export function isModuleSource(path: string): boolean {
   return MODULE_EXT.test(path);
 }

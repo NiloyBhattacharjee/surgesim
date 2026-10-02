@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "chronon-sim"
+name = "surgesim"
 version = "0.1.0"
-description = "Python authoring SDK for Chronon Sim: describe a system in Python, compile it to the JSON model format."
+description = "Python authoring SDK for Surgesim: describe a system in Python, compile it to the JSON model format."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }

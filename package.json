@@ -1,5 +1,5 @@
 {
-  "name": "chronon-sim-monorepo",
+  "name": "surgesim-monorepo",
   "private": true,
   "version": "0.1.2",
   "type": "module",
@@ -12,16 +12,16 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.typecheck.json",
-    "chronon": "node apps/cli/dist/bin.js",
-    "demo:build": "pnpm --filter @chronon-sim/demo build",
-    "demo": "pnpm --filter @chronon-sim/demo start",
+    "surgesim": "node apps/cli/dist/bin.js",
+    "demo:build": "pnpm --filter @surgesim/demo build",
+    "demo": "pnpm --filter @surgesim/demo start",
     "test:py": "python -m unittest discover -s sdks/python/tests",
     "release:version": "node scripts/set-version.mjs",
     "release:check": "node scripts/check-release.mjs"
   },
   "devDependencies": {
-    "@chronon-sim/cli": "workspace:*",
-    "@chronon-sim/sdk": "workspace:*",
+    "@surgesim/cli": "workspace:*",
+    "@surgesim/sdk": "workspace:*",
     "@types/node": "^22.0.0",
     "fast-check": "^4.10.2",
     "typescript": "^5.6.0",

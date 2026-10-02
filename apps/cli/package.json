@@ -1,7 +1,7 @@
 {
-  "name": "@chronon-sim/cli",
+  "name": "@surgesim/cli",
   "version": "0.1.2",
-  "description": "The chronon command-line tool: run Chronon Sim models, enforce capacity thresholds in CI, write HTML reports, compare runs, import CloudFormation/CDK.",
+  "description": "The surgesim command-line tool: run Surgesim models, enforce capacity thresholds in CI, write HTML reports, compare runs, import CloudFormation/CDK.",
   "keywords": [
     "simulation",
     "cli",
@@ -11,18 +11,18 @@
     "cdk"
   ],
   "license": "Apache-2.0",
-  "homepage": "https://github.com/NiloyBhattacharjee/chronon-sim#readme",
+  "homepage": "https://github.com/NiloyBhattacharjee/surgesim#readme",
   "bugs": {
-    "url": "https://github.com/NiloyBhattacharjee/chronon-sim/issues"
+    "url": "https://github.com/NiloyBhattacharjee/surgesim/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NiloyBhattacharjee/chronon-sim.git",
+    "url": "git+https://github.com/NiloyBhattacharjee/surgesim.git",
     "directory": "apps/cli"
   },
   "type": "module",
   "bin": {
-    "chronon": "./dist/bin.js"
+    "surgesim": "./dist/bin.js"
   },
   "main": "./dist/main.js",
   "files": [
@@ -32,12 +32,12 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@chronon-sim/engine": "workspace:*",
-    "@chronon-sim/platform": "workspace:*",
-    "@chronon-sim/report": "workspace:*",
-    "@chronon-sim/importer": "workspace:*",
-    "@chronon-sim/sdk": "workspace:*",
-    "@chronon-sim/calibrate": "workspace:*"
+    "@surgesim/engine": "workspace:*",
+    "@surgesim/platform": "workspace:*",
+    "@surgesim/report": "workspace:*",
+    "@surgesim/importer": "workspace:*",
+    "@surgesim/sdk": "workspace:*",
+    "@surgesim/calibrate": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

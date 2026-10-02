@@ -1,9 +1,9 @@
-# @chronon-sim/calibrate
+# @surgesim/calibrate
 
-Calibrate Chronon Sim models against real measurements. No Node or DOM APIs.
+Calibrate Surgesim models against real measurements. No Node or DOM APIs.
 
 ```ts
-import { fitSamples, fitArrivalProfile, parseColumn, compareToObserved } from "@chronon-sim/calibrate";
+import { fitSamples, fitArrivalProfile, parseColumn, compareToObserved } from "@surgesim/calibrate";
 
 const durations = parseColumn(csvText, { column: "duration_ms" }).values.map((ms) => ms / 1000);
 const fit = fitSamples(durations);              // ranked distributions, best first
@@ -17,12 +17,12 @@ const verdicts = compareToObserved(results, { metrics: { "sink.p99": 1.2 } });  
 
 ## A complete example
 
-Save this as `check.mjs` and run `npm install @chronon-sim/engine @chronon-sim/calibrate && node check.mjs`. It builds a
+Save this as `check.mjs` and run `npm install @surgesim/engine @surgesim/calibrate && node check.mjs`. It builds a
 model, runs it and compares two of its outputs with measured values:
 
 ```js
-import { loadModel, runModel } from "@chronon-sim/engine";
-import { compareToObserved } from "@chronon-sim/calibrate";
+import { loadModel, runModel } from "@surgesim/engine";
+import { compareToObserved } from "@surgesim/calibrate";
 
 // 1. A model: 8 requests/s into a queue, served by 4 workers whose service time is lognormal (mean 0.3 s).
 const loaded = loadModel({
@@ -52,7 +52,7 @@ To get a model's inputs from measurements rather than guessing them, use `fitSam
 `fitArrivalProfile` for traffic, as above.
 
 Also `scaleArrivals` and `scaleServiceTimes`, which return a copy of a model with traffic or service times changed, for
-sensitivity analysis. See [docs/calibration.md](https://github.com/NiloyBhattacharjee/chronon-sim/blob/main/docs/calibration.md)
+sensitivity analysis. See [docs/calibration.md](https://github.com/NiloyBhattacharjee/surgesim/blob/main/docs/calibration.md)
 for the workflow, what each verdict means, and the pitfalls.
 
-Part of [Chronon Sim](https://github.com/NiloyBhattacharjee/chronon-sim). Apache-2.0.
+Part of [Surgesim](https://github.com/NiloyBhattacharjee/surgesim). Apache-2.0.

@@ -6,12 +6,12 @@ const src = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
-      "@chronon-sim/engine": src("./packages/engine/src/index.ts"),
-      "@chronon-sim/platform": src("./packages/platform/src/index.ts"),
-      "@chronon-sim/sdk": src("./packages/sdk/src/index.ts"),
-      "@chronon-sim/report": src("./packages/report/src/index.ts"),
-      "@chronon-sim/importer": src("./packages/importer/src/index.ts"),
-      "@chronon-sim/calibrate": src("./packages/calibrate/src/index.ts"),
+      "@surgesim/engine": src("./packages/engine/src/index.ts"),
+      "@surgesim/platform": src("./packages/platform/src/index.ts"),
+      "@surgesim/sdk": src("./packages/sdk/src/index.ts"),
+      "@surgesim/report": src("./packages/report/src/index.ts"),
+      "@surgesim/importer": src("./packages/importer/src/index.ts"),
+      "@surgesim/calibrate": src("./packages/calibrate/src/index.ts"),
     },
   },
   test: {

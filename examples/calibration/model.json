@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "Calibrated service (inputs fitted from the synthetic monitoring export)",
-  "description": "Built only from `chronon fit` and `chronon fit-arrivals` output plus the known worker count (8). Run `chronon calibrate examples/calibration/model.json --observed examples/calibration/observed.json` to compare it with what the system measured.",
+  "description": "Built only from `surgesim fit` and `surgesim fit-arrivals` output plus the known worker count (8). Run `surgesim calibrate examples/calibration/model.json --observed examples/calibration/observed.json` to compare it with what the system measured.",
   "settings": { "duration": 900, "seed": 1, "replications": 20 },
   "components": [
     {

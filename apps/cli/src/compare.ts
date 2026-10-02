@@ -1,6 +1,6 @@
-import { runModel, type RunResults } from "@chronon-sim/engine";
-import type { Logger } from "@chronon-sim/platform";
-import { computeDeltas, renderComparison, renderReport } from "@chronon-sim/report";
+import { runModel, type RunResults } from "@surgesim/engine";
+import type { Logger } from "@surgesim/platform";
+import { computeDeltas, renderComparison, renderReport } from "@surgesim/report";
 import { EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE } from "./exit.js";
 import { loadModelSource, readModelSource, type SourceHost } from "./source.js";
 
@@ -17,7 +17,7 @@ function baseLabel(path: string): string {
 export type ResultsLoad = { ok: true; results: RunResults } | { ok: false; code: number; message: string };
 
 /**
- * Load run results from `path`: a results file written by `chronon run --json`, or a model (JSON or
+ * Load run results from `path`: a results file written by `surgesim run --json`, or a model (JSON or
  * module), which is run first so that two models can be compared directly.
  */
 export async function loadResults(path: string, host: SourceHost, overrides: { seed?: number; replications?: number } = {}): Promise<ResultsLoad> {
@@ -26,7 +26,7 @@ export async function loadResults(path: string, host: SourceHost, overrides: { s
   const json = source.json;
   if (isRecord(json) && json["resultsVersion"] !== undefined) {
     if (json["resultsVersion"] !== 1 || !Array.isArray(json["outputs"]) || !isRecord(json["settings"])) {
-      return { ok: false, code: EXIT_INVALID_MODEL, message: `${path} is not a supported results file (expected resultsVersion 1 from "chronon run --json")` };
+      return { ok: false, code: EXIT_INVALID_MODEL, message: `${path} is not a supported results file (expected resultsVersion 1 from "surgesim run --json")` };
     }
     return { ok: true, results: json as unknown as RunResults };
   }
@@ -39,14 +39,14 @@ export async function loadResults(path: string, host: SourceHost, overrides: { s
   }
 }
 
-/** `chronon report <results.json|model> --html out.html` */
+/** `surgesim report <results.json|model> --html out.html` */
 export async function runReport(
   path: string,
   options: { html: string | undefined; title: string | undefined },
   host: SourceHost & { logger: Logger },
 ): Promise<number> {
   if (options.html === undefined) {
-    host.logger.error('error: "chronon report" needs --html <file>');
+    host.logger.error('error: "surgesim report" needs --html <file>');
     return EXIT_USAGE;
   }
   const loaded = await loadResults(path, host);
@@ -64,7 +64,7 @@ export async function runReport(
   return EXIT_OK;
 }
 
-/** `chronon compare <a> <b> --html out.html` */
+/** `surgesim compare <a> <b> --html out.html` */
 export async function runCompare(
   paths: [string, string],
   options: { html: string | undefined; labelA: string | undefined; labelB: string | undefined; title: string | undefined; seed?: number; replications?: number },

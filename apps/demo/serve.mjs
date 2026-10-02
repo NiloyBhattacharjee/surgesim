@@ -12,6 +12,6 @@ createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(body);
   } catch {
-    res.writeHead(500).end("run `pnpm --filter @chronon-sim/demo build` first");
+    res.writeHead(500).end("run `pnpm --filter @surgesim/demo build` first");
   }
-}).listen(port, () => console.log(`Chronon Sim demo: http://localhost:${port}/`));
+}).listen(port, () => console.log(`Surgesim demo: http://localhost:${port}/`));

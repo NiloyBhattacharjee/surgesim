@@ -1,7 +1,7 @@
 {
-  "name": "@chronon-sim/report",
+  "name": "@surgesim/report",
   "version": "0.1.2",
-  "description": "Self-contained HTML reports (inline SVG charts, no external assets) and run comparisons from Chronon Sim results. No Node or DOM APIs.",
+  "description": "Self-contained HTML reports (inline SVG charts, no external assets) and run comparisons from Surgesim results. No Node or DOM APIs.",
   "keywords": [
     "simulation",
     "report",
@@ -9,13 +9,13 @@
     "charts"
   ],
   "license": "Apache-2.0",
-  "homepage": "https://github.com/NiloyBhattacharjee/chronon-sim#readme",
+  "homepage": "https://github.com/NiloyBhattacharjee/surgesim#readme",
   "bugs": {
-    "url": "https://github.com/NiloyBhattacharjee/chronon-sim/issues"
+    "url": "https://github.com/NiloyBhattacharjee/surgesim/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NiloyBhattacharjee/chronon-sim.git",
+    "url": "git+https://github.com/NiloyBhattacharjee/surgesim.git",
     "directory": "packages/report"
   },
   "type": "module",
@@ -32,7 +32,7 @@
   ],
   "sideEffects": false,
   "dependencies": {
-    "@chronon-sim/engine": "workspace:*"
+    "@surgesim/engine": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

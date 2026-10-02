@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Turns a service log (service-log.jsonl) into the inputs Chronon's calibration commands read:
+ * Turns a service log (service-log.jsonl) into the inputs Surgesim's calibration commands read:
  *
- *   arrivals.csv       one ISO timestamp per request            -> chronon fit-arrivals
- *   service_times.csv  processing time in ms (finish - start)   -> chronon fit --scale 0.001
- *   observed.json      measured latency / utilisation / queue   -> chronon calibrate --observed
+ *   arrivals.csv       one ISO timestamp per request            -> surgesim fit-arrivals
+ *   service_times.csv  processing time in ms (finish - start)   -> surgesim fit --scale 0.001
+ *   observed.json      measured latency / utilisation / queue   -> surgesim calibrate --observed
  *
  *   node validation/real-system/summarize.mjs validation/real-system/runs/B/service-log.jsonl
  *

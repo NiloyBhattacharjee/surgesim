@@ -8,12 +8,12 @@
     "resolveJsonModule": true,
     "types": ["node"],
     "paths": {
-      "@chronon-sim/engine": ["./packages/engine/src/index.ts"],
-      "@chronon-sim/platform": ["./packages/platform/src/index.ts"],
-      "@chronon-sim/sdk": ["./packages/sdk/src/index.ts"],
-      "@chronon-sim/report": ["./packages/report/src/index.ts"],
-      "@chronon-sim/importer": ["./packages/importer/src/index.ts"],
-      "@chronon-sim/calibrate": ["./packages/calibrate/src/index.ts"]
+      "@surgesim/engine": ["./packages/engine/src/index.ts"],
+      "@surgesim/platform": ["./packages/platform/src/index.ts"],
+      "@surgesim/sdk": ["./packages/sdk/src/index.ts"],
+      "@surgesim/report": ["./packages/report/src/index.ts"],
+      "@surgesim/importer": ["./packages/importer/src/index.ts"],
+      "@surgesim/calibrate": ["./packages/calibrate/src/index.ts"]
     }
   },
   "include": ["packages/*/src", "packages/*/test", "apps/*/src", "apps/*/test", "scripts/test", "vitest.config.ts"]

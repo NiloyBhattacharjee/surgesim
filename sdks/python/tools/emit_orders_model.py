@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from chronon_sim import Model, dist, minutes, ms  # noqa: E402
+from surgesim import Model, dist, minutes, ms  # noqa: E402
 
 m = Model("orders (python)", duration=300, warm_up=30, replications=3, seed=9, description="Built with the Python SDK")
 

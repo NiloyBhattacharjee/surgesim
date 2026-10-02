@@ -35,7 +35,7 @@ interface Scenario {
   servers: number;
   service: { dist: "exponential"; mean: number } | { dist: "lognormal"; mean: number; stdDev: number };
   queueLimit?: number;
-  /** Metrics to compare: [name, Chronon output id, SimPy field]. */
+  /** Metrics to compare: [name, Surgesim output id, SimPy field]. */
   metrics: string[];
 }
 
@@ -49,8 +49,8 @@ const SCENARIOS: Scenario[] = [
   { name: "Traffic spike (10/s, 50/s, 10/s) into 20 workers, lognormal service", duration: 600, warmUp: 0, replications: 10, seed: 16, rateProfile: [[0, 10], [180, 50], [300, 10]], servers: 20, service: { dist: "lognormal", mean: 0.5, stdDev: 0.25 }, metrics: [...COMMON, "maxQueueLength", "arrived"] },
 ];
 
-/** Where each reference field lives in Chronon Sim's output ids. */
-const CHRONON_ID: Record<string, string> = {
+/** Where each reference field lives in Surgesim's output ids. */
+const SURGESIM_ID: Record<string, string> = {
   utilisation: "server.Utilisation",
   avgQueueLength: "queue.AverageQueueLength",
   maxQueueLength: "queue.MaxQueueLength",
@@ -71,7 +71,7 @@ function stats(xs: number[]): { mean: number; se: number; n: number } {
   return { mean, se: Math.sqrt(variance / n), n };
 }
 
-function chrononModel(s: Scenario) {
+function surgesimModel(s: Scenario) {
   return {
     version: 1,
     settings: { duration: s.duration, warmUp: s.warmUp, replications: s.replications, seed: s.seed },
@@ -87,7 +87,7 @@ function chrononModel(s: Scenario) {
 interface Row {
   scenario: string;
   metric: string;
-  chronon: { mean: number; se: number };
+  surgesim: { mean: number; se: number };
   simpy: { mean: number; se: number };
   z: number;
   agree: boolean;
@@ -95,11 +95,11 @@ interface Row {
 const rows: Row[] = [];
 
 /**
- * Run a scenario through both simulators and compare every metric. `chrononService` lets a test feed Chronon a
+ * Run a scenario through both simulators and compare every metric. `surgesimService` lets a test feed Surgesim a
  * deliberately different service distribution than the reference, to prove the comparison can tell them apart.
  */
-function compareScenario(s: Scenario, chrononService: Scenario["service"] = s.service): { rows: Row[]; disagreements: string[] } {
-  const dir = mkdtempSync(join(tmpdir(), "chronon-xcheck-"));
+function compareScenario(s: Scenario, surgesimService: Scenario["service"] = s.service): { rows: Row[]; disagreements: string[] } {
+  const dir = mkdtempSync(join(tmpdir(), "surgesim-xcheck-"));
   try {
     const file = join(dir, "scenario.json");
     writeFileSync(file, JSON.stringify({ ...s, metrics: undefined }));
@@ -108,13 +108,13 @@ function compareScenario(s: Scenario, chrononService: Scenario["service"] = s.se
 ${r.stderr}`);
     const ref = JSON.parse(r.stdout) as { replications: Record<string, number | null>[] };
 
-    const chronon = run(chrononModel({ ...s, service: chrononService }));
+    const surgesim = run(surgesimModel({ ...s, service: surgesimService }));
     const out: Row[] = [];
     const disagreements: string[] = [];
     for (const metric of s.metrics) {
-      const a = chronon.replications.map((rep) => rep.outputs[CHRONON_ID[metric] as string]).filter((v): v is number => typeof v === "number");
+      const a = surgesim.replications.map((rep) => rep.outputs[SURGESIM_ID[metric] as string]).filter((v): v is number => typeof v === "number");
       const b = ref.replications.map((rep) => rep[metric]).filter((v): v is number => typeof v === "number");
-      expect(a.length, `${metric}: Chronon replications with a value`).toBe(s.replications);
+      expect(a.length, `${metric}: Surgesim replications with a value`).toBe(s.replications);
       expect(b.length, `${metric}: SimPy replications with a value`).toBe(s.replications);
       const A = stats(a);
       const B = stats(b);
@@ -123,8 +123,8 @@ ${r.stderr}`);
       const allowed = 3.5 * se + 0.003 * Math.abs(B.mean);
       const z = se > 0 ? diff / se : diff === 0 ? 0 : Infinity;
       const agree = diff <= allowed;
-      out.push({ scenario: s.name, metric, chronon: A, simpy: B, z, agree });
-      if (!agree) disagreements.push(`${metric}: Chronon ${A.mean.toPrecision(5)} (se ${A.se.toPrecision(2)}) vs SimPy ${B.mean.toPrecision(5)} (se ${B.se.toPrecision(2)}), z=${z.toFixed(2)}`);
+      out.push({ scenario: s.name, metric, surgesim: A, simpy: B, z, agree });
+      if (!agree) disagreements.push(`${metric}: Surgesim ${A.mean.toPrecision(5)} (se ${A.se.toPrecision(2)}) vs SimPy ${B.mean.toPrecision(5)} (se ${B.se.toPrecision(2)}), z=${z.toFixed(2)}`);
     }
     return { rows: out, disagreements };
   } finally {
@@ -147,14 +147,14 @@ describe.skipIf(python === null)("agrees with an independent simulator (SimPy)",
     expect(slower.disagreements.length, "a 4% error should be visible in at least one metric").toBeGreaterThan(0);
     // ...while the identical model is accepted (the test above), so the check is neither blind nor trigger-happy.
     const utilisation = slower.rows.find((r) => r.metric === "utilisation")!;
-    expect(utilisation.chronon.mean).toBeGreaterThan(utilisation.simpy.mean);
+    expect(utilisation.surgesim.mean).toBeGreaterThan(utilisation.simpy.mean);
   }, 240_000);
 
   it("prints the comparison table when asked (CROSSCHECK_REPORT=<file> writes it as JSON)", () => {
     const out = process.env["CROSSCHECK_REPORT"];
     if (out) writeFileSync(out, JSON.stringify(rows, null, 2));
     if (process.env["CROSSCHECK_VERBOSE"]) {
-      for (const r of rows) console.log(`${r.scenario} | ${r.metric.padEnd(15)} chronon ${r.chronon.mean.toPrecision(5).padStart(10)}  simpy ${r.simpy.mean.toPrecision(5).padStart(10)}  z=${r.z.toFixed(2)} ${r.agree ? "ok" : "DISAGREE"}`);
+      for (const r of rows) console.log(`${r.scenario} | ${r.metric.padEnd(15)} surgesim ${r.surgesim.mean.toPrecision(5).padStart(10)}  simpy ${r.simpy.mean.toPrecision(5).padStart(10)}  z=${r.z.toFixed(2)} ${r.agree ? "ok" : "DISAGREE"}`);
     }
     expect(rows.length).toBeGreaterThan(0);
   });

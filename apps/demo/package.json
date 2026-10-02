@@ -1,8 +1,8 @@
 {
-  "name": "@chronon-sim/demo",
+  "name": "@surgesim/demo",
   "version": "0.1.2",
   "private": true,
-  "description": "Browser demo: the Chronon Sim engine running in a Web Worker, as one self-contained HTML file.",
+  "description": "Browser demo: the Surgesim engine running in a Web Worker, as one self-contained HTML file.",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -10,8 +10,8 @@
     "start": "node build.mjs && node serve.mjs"
   },
   "dependencies": {
-    "@chronon-sim/engine": "workspace:*",
-    "@chronon-sim/report": "workspace:*"
+    "@surgesim/engine": "workspace:*",
+    "@surgesim/report": "workspace:*"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"

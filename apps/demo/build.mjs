@@ -9,8 +9,8 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = (name) => resolve(here, "../../packages", name, "src/index.ts");
 const alias = {
-  "@chronon-sim/engine": pkg("engine"),
-  "@chronon-sim/report": pkg("report"),
+  "@surgesim/engine": pkg("engine"),
+  "@surgesim/report": pkg("report"),
 };
 const common = { bundle: true, format: "iife", platform: "neutral", mainFields: ["module", "main"], target: "es2022", write: false, legalComments: "none", alias, logLevel: "silent" };
 

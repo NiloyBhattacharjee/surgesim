@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * A tiny real queueing service, used as ground truth for validating Chronon Sim.
+ * A tiny real queueing service, used as ground truth for validating Surgesim.
  *
  * It accepts HTTP requests, holds them in a FIFO queue, and serves at most `--capacity` of them at a time. Each
  * request "works" for a random lognormal time (a timer), then is answered. For every request it logs when it
  * arrived, when service started and when it finished, as one JSON object per line.
  *
- * The service-time distribution is printed at startup so you can compare it with what `chronon fit` recovers from
- * the logs. Chronon is never told it.
+ * The service-time distribution is printed at startup so you can compare it with what `surgesim fit` recovers from
+ * the logs. Surgesim is never told it.
  *
  *   node validation/real-system/service.mjs --seed 1 --out validation/real-system/runs/A/service-log.jsonl
  *

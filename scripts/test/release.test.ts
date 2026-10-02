@@ -19,7 +19,7 @@ interface Pkg {
 }
 /** A throwaway workspace: a root package plus the given packages. */
 function workspace(pkgs: Pkg[], rootVersion = "1.0.0"): string {
-  const root = mkdtempSync(join(tmpdir(), "chronon-release-"));
+  const root = mkdtempSync(join(tmpdir(), "surgesim-release-"));
   dirs.push(root);
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "root", private: true, version: rootVersion }, null, 2) + "\n");
   for (const p of pkgs) {
@@ -81,7 +81,7 @@ describe("finding packages", () => {
     const root = workspace([{ dir: "packages/a", json: pub("@x/a") }]);
     mkdirSync(join(root, "packages", "empty"));
     expect(workspacePackages(root)).toHaveLength(1);
-    expect(workspacePackages(mkdtempSync(join(tmpdir(), "chronon-none-")))).toEqual([]);
+    expect(workspacePackages(mkdtempSync(join(tmpdir(), "surgesim-none-")))).toEqual([]);
   });
 });
 
@@ -165,13 +165,13 @@ describe("the real repository is releasable", () => {
 
   it("all seven published packages share one version, so one tag can release them together", () => {
     expect(packages.map((p) => p.json.name).sort()).toEqual([
-      "@chronon-sim/calibrate",
-      "@chronon-sim/cli",
-      "@chronon-sim/engine",
-      "@chronon-sim/importer",
-      "@chronon-sim/platform",
-      "@chronon-sim/report",
-      "@chronon-sim/sdk",
+      "@surgesim/calibrate",
+      "@surgesim/cli",
+      "@surgesim/engine",
+      "@surgesim/importer",
+      "@surgesim/platform",
+      "@surgesim/report",
+      "@surgesim/sdk",
     ]);
     expect(new Set(packages.map((p) => p.json.version)).size).toBe(1);
     const version = packages[0]!.json.version;

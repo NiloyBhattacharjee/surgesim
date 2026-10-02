@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Clock, FileStore, Logger } from "@chronon-sim/platform";
+import type { Clock, FileStore, Logger } from "@surgesim/platform";
 
 /** FileStore backed by the Node file system. */
 export class NodeFileStore implements FileStore {
@@ -17,7 +17,7 @@ export class NodeFileStore implements FileStore {
 /** Logger writing info/debug to stdout and warn/error to stderr. */
 export class ConsoleLogger implements Logger {
   debug(message: string): void {
-    if (process.env["CHRONON_DEBUG"]) console.error(message);
+    if (process.env["SURGESIM_DEBUG"]) console.error(message);
   }
   info(message: string): void {
     console.log(message);
@@ -37,7 +37,7 @@ export class NodeClock implements Clock {
   }
 }
 
-/** Import a model module from a file path (Node resolves the module's own imports, e.g. @chronon-sim/sdk). */
+/** Import a model module from a file path (Node resolves the module's own imports, e.g. @surgesim/sdk). */
 export function importModule(path: string): Promise<unknown> {
   return import(pathToFileURL(resolve(path)).href);
 }

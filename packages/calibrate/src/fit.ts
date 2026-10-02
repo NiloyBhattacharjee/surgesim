@@ -1,4 +1,4 @@
-import type { DistributionSpec } from "@chronon-sim/engine";
+import type { DistributionSpec } from "@surgesim/engine";
 import { ksPValue, normalCdf } from "./special.js";
 
 /** The distribution families that can be fitted (the ones the model format supports). */

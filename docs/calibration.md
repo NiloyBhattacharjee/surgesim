@@ -1,6 +1,6 @@
 # Calibration: checking the model against reality
 
-A simulator is only as good as its inputs and its engine. Chronon Sim checks both:
+A simulator is only as good as its inputs and its engine. Surgesim checks both:
 
 1. **The engine** is cross-checked against an independent simulator (SimPy) and against exact queueing theory.
 2. **Your model** can be fitted from measurements and then compared with what the real system did, with the
@@ -13,7 +13,7 @@ A simulator is only as good as its inputs and its engine. Chronon Sim checks bot
 ## 1. The engine against an independent simulator
 
 `validation/simpy_reference.py` is a separate implementation of the same basic system, built differently on purpose:
-the clock comes from SimPy, time-varying arrivals use thinning (Chronon Sim draws piecewise-exponential gaps), the random
+the clock comes from SimPy, time-varying arrivals use thinning (Surgesim draws piecewise-exponential gaps), the random
 numbers are Python's, and every statistic is computed from scratch. The reference itself first reproduces textbook
 M/M/1 values.
 
@@ -30,11 +30,11 @@ agree within 3.5 standard errors:
 
 All 53 agree (median |z| 0.55; for pure sampling noise about 0.67). Two checks keep that from being hollow:
 
-- **The comparison has teeth.** The test also feeds Chronon Sim a service time only 4% slower than the reference and
+- **The comparison has teeth.** The test also feeds Surgesim a service time only 4% slower than the reference and
   requires the disagreement to be detected.
 - **A suspicious pattern was chased down.** In the M/M/5 scenario every metric sat 2 to 3 standard errors on one
   side. Rerunning it with 8 times the statistical power, both simulators landed on the exact Erlang-C answer
-  (mean queue length 2.2165): Chronon Sim at 2.2135, SimPy at 2.2165. It was sampling noise, not bias.
+  (mean queue length 2.2165): Surgesim at 2.2135, SimPy at 2.2165. It was sampling noise, not bias.
 
 ## 2. The workflow on measurements
 
@@ -43,16 +43,16 @@ You need three things from your monitoring tool: how long requests take to **pro
 
 ```bash
 # 1. Service times. A Lambda "Duration" export is in milliseconds, so scale to seconds.
-chronon fit examples/calibration/service_times.csv --scale 0.001
+surgesim fit examples/calibration/service_times.csv --scale 0.001
 
 # 2. Arrival rate over time, from one timestamp per request (ISO dates or numbers).
-chronon fit-arrivals examples/calibration/arrivals.csv --window 30
+surgesim fit-arrivals examples/calibration/arrivals.csv --window 30
 
 # 3. Build a model from those numbers plus what you know (workers, limits), then compare.
-chronon calibrate examples/calibration/model.json --observed examples/calibration/observed.json
+surgesim calibrate examples/calibration/model.json --observed examples/calibration/observed.json
 ```
 
-### `chronon fit`
+### `surgesim fit`
 
 Fits the distributions the model format supports (exponential, lognormal, normal, uniform, triangular, constant) and ranks
 them by the Kolmogorov-Smirnov distance. On the example it chose lognormal decisively and recovered the truth:
@@ -68,7 +68,7 @@ It warns when nothing fits well (a mixture of fast and slow requests, for exampl
 misrepresent), when values are negative or zero (some families are skipped), and when there are too few samples. Use
 `--column NAME` or a 0-based index when the file has several columns.
 
-### `chronon fit-arrivals`
+### `surgesim fit-arrivals`
 
 Counts arrivals in windows and finds the best split into constant-rate segments with an optimal change-point search
 (a penalised Poisson likelihood solved over the whole series at once, not a left-to-right comparison). Noise does not
@@ -98,7 +98,7 @@ for rate changes.
 > the three segments in 18 (5 s window) to 54 (30 s) and split steady traffic in up to 27% of runs; the new code finds them
 > in 57 to 59 and splits steady traffic in 1% to 3%. The tests check these properties over many seeds.
 
-### `chronon calibrate`
+### `surgesim calibrate`
 
 Runs the model and compares chosen outputs with measured values:
 
@@ -128,8 +128,8 @@ Because the ground truth is known, the whole chain could be tested:
 
 | Model | Result against the true system (200 simulated days) |
 |---|---|
-| Chronon Sim with the **true** inputs | Agrees on every queue and latency metric (|z| ≤ 0.4). The engine is right. |
-| Chronon Sim with the **fitted** inputs | Mean queue length 16% high, p99 and mean latency a few percent high. |
+| Surgesim with the **true** inputs | Agrees on every queue and latency metric (|z| ≤ 0.4). The engine is right. |
+| Surgesim with the **fitted** inputs | Mean queue length 16% high, p99 and mean latency a few percent high. |
 
 The gap comes entirely from input error. The fitted arrival rates came from one noisy day (10,961 arrivals, 1.5% above
 the expected 10,800), and near capacity small input errors are amplified. `--sensitivity 5` shows this directly:

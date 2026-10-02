@@ -1,11 +1,11 @@
-import { loadModel } from "@chronon-sim/engine";
-import type { FileStore, Logger } from "@chronon-sim/platform";
-import { importCloudFormation, type ImportOptions } from "@chronon-sim/importer";
-import { dist } from "@chronon-sim/sdk";
+import { loadModel } from "@surgesim/engine";
+import type { FileStore, Logger } from "@surgesim/platform";
+import { importCloudFormation, type ImportOptions } from "@surgesim/importer";
+import { dist } from "@surgesim/sdk";
 import { EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE } from "./exit.js";
 import { formatErrors } from "./source.js";
 
-/** Command-line options of `chronon import`, already parsed to numbers. */
+/** Command-line options of `surgesim import`, already parsed to numbers. */
 export interface ImportArgs {
   out: string | undefined;
   name: string | undefined;
@@ -19,7 +19,7 @@ export interface ImportArgs {
   entry: string[];
 }
 
-/** `chronon import <template.json>`: convert a CloudFormation / CDK-synthesized template to a model. */
+/** `surgesim import <template.json>`: convert a CloudFormation / CDK-synthesized template to a model. */
 export async function runImport(path: string, args: ImportArgs, host: { fs: FileStore; logger: Logger }): Promise<number> {
   const { fs, logger } = host;
   let text: string;

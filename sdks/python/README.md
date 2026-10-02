@@ -1,10 +1,10 @@
-# chronon-sim (Python SDK)
+# surgesim (Python SDK)
 
-Describe a system in Python and compile it to the Chronon Sim JSON model format. Pure standard library, no
+Describe a system in Python and compile it to the Surgesim JSON model format. Pure standard library, no
 dependencies. The SDK never simulates anything: the JSON it emits is the contract, and the engine runs it.
 
 ```python
-from chronon_sim import Model, dist
+from surgesim import Model, dist
 
 m = Model("checkout", duration=600, replications=5, seed=7)
 done = m.entity_sink("done")
@@ -16,12 +16,12 @@ open("model.json", "w").write(m.to_json())
 ```
 
 ```bash
-chronon run model.json --html report.html
+surgesim run model.json --html report.html
 ```
 
 Argument names are snake_case and become the format's camelCase keys (`service_time` -> `serviceTime`).
 Mistakes raise `ModelBuildError` with structured `problems` (`component`, `key`, `message`). Semantic validation
-(ranges, required inputs, link roles) is left to the engine, so `chronon run` reports it the same way for every
+(ranges, required inputs, link roles) is left to the engine, so `surgesim run` reports it the same way for every
 authoring route. See [docs/sdk.md](../../docs/sdk.md) for the model it maps to.
 
 `assert` is a Python keyword, so assertions are added with `assert_that(...)`.

@@ -1,6 +1,6 @@
-"""Chronon Sim Python SDK: describe a system in Python, compile it to the JSON model format.
+"""Surgesim Python SDK: describe a system in Python, compile it to the JSON model format.
 
-The SDK never simulates anything. The JSON it emits is the contract; the engine (``chronon run``) runs it.
+The SDK never simulates anything. The JSON it emits is the contract; the engine (``surgesim run``) runs it.
 """
 
 from .model import MODEL_FORMAT_VERSION, Component, Model, ModelBuildError

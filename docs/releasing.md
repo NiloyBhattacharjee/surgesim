@@ -8,15 +8,15 @@ release with generated notes. You never run `npm publish` by hand.
 The release job needs permission to publish as you, through an npm access token stored as a repository secret.
 
 1. **Create the token.** On npmjs.com: your avatar, **Access Tokens**, **Generate New Token**, **Granular Access Token**.
-   - Name: `chronon-sim release`
+   - Name: `surgesim release`
    - Expiration: the longest offered (you must create a new one before it expires)
-   - **Packages and scopes: Read and write**, limited to the **`@chronon-sim`** scope
+   - **Packages and scopes: Read and write**, limited to the **`@surgesim`** scope
    - Tick **"Bypass two-factor authentication"** (a CI job has no way to type a code). This is why the token must be
      limited to this one scope and kept secret.
 2. **Store it as a secret.** Either in the GitHub repository (Settings, Secrets and variables, Actions, New repository
    secret, name `NPM_TOKEN`) or with the command line, which keeps it out of your shell history:
    ```bash
-   gh secret set NPM_TOKEN --repo NiloyBhattacharjee/chronon-sim
+   gh secret set NPM_TOKEN --repo NiloyBhattacharjee/surgesim
    ```
    and paste the token when asked.
 
@@ -24,7 +24,7 @@ The release job needs permission to publish as you, through an npm access token 
    publish fail with `npm error *** is not a legal HTTP header value` (this is what stopped the first v0.1.1 attempt).
    On Windows PowerShell, copy the token and set the secret from the clipboard with the whitespace trimmed:
    ```powershell
-   $t = (Get-Clipboard).Trim(); gh secret set NPM_TOKEN --repo NiloyBhattacharjee/chronon-sim --body $t; Remove-Variable t
+   $t = (Get-Clipboard).Trim(); gh secret set NPM_TOKEN --repo NiloyBhattacharjee/surgesim --body $t; Remove-Variable t
    ```
    The release job checks the secret's format before publishing and says so if it is wrong.
 

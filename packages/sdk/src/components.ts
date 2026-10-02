@@ -4,7 +4,7 @@ import type { RateProfile, Sampler } from "./values.js";
 /**
  * Per-component metadata: the input keys, link keys and output keys the engine's schema declares.
  * The builder uses it to reject typos at authoring time, and the test suite checks it against the
- * engine's own schemas (`chronon schema`) so the SDK cannot drift from the format.
+ * engine's own schemas (`surgesim schema`) so the SDK cannot drift from the format.
  */
 export const SPECS = {
   EntityGenerator: {

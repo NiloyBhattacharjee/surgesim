@@ -1,4 +1,4 @@
-# TypeScript SDK (`@chronon-sim/sdk`)
+# TypeScript SDK (`@surgesim/sdk`)
 
 Describe a system in code, the way CDK describes infrastructure, and compile it to the
 [JSON model format](model-format.md). The SDK has no runtime dependencies and no Node or DOM APIs, so it also
@@ -6,7 +6,7 @@ works in a browser or a build script. It never simulates anything: the JSON it e
 engine (or any future engine) runs it.
 
 ```ts
-import { Model, dist, time } from "@chronon-sim/sdk";
+import { Model, dist, time } from "@surgesim/sdk";
 
 const model = new Model("checkout", { duration: 600, warmUp: 60, replications: 10, seed: 7 });
 
@@ -35,8 +35,8 @@ export default model;
 ```
 
 ```bash
-chronon run checkout.ts                       # run it (TypeScript needs Node 22.18+, or tsx / compile to .js)
-chronon compile checkout.ts --out model.json  # emit the JSON contract (validated first)
+surgesim run checkout.ts                       # run it (TypeScript needs Node 22.18+, or tsx / compile to .js)
+surgesim compile checkout.ts --out model.json  # emit the JSON contract (validated first)
 ```
 
 ## Running model files
@@ -44,7 +44,7 @@ chronon compile checkout.ts --out model.json  # emit the JSON contract (validate
 Model files are ES modules. In a project whose `package.json` says `"type": "commonjs"` (which `npm init` writes by
 default), Node treats `.ts` and `.js` files as CommonJS and the import fails with "Cannot use import statement outside a
 module". Either name the file
-`.mts` (or `.mjs`), or add `"type": "module"` to your `package.json`. `chronon` suggests this when it sees the error.
+`.mts` (or `.mjs`), or add `"type": "module"` to your `package.json`. `surgesim` suggests this when it sees the error.
 Running `.ts` directly needs Node 22.18+; on older Node, compile to `.js` first or run through `tsx`.
 
 ## How it maps to the format
@@ -84,12 +84,12 @@ records, the same shape the engine uses:
 - `toJSON()` throws if a link points at a component from a different model.
 
 Semantic validation (ranges, required inputs, link roles) is deliberately **not** duplicated in the SDK. The
-engine's loader is the single source of truth, so `chronon run` and `chronon compile` report those errors with
+engine's loader is the single source of truth, so `surgesim run` and `surgesim compile` report those errors with
 the same messages whether the model came from JSON or from the SDK.
 
 ## No drift
 
 The SDK declares each component's input, link and output keys (`SPECS`). A test compares them with the engine's
-registered schemas (`chronon schema`), so adding or changing a component in the engine fails the SDK build until
+registered schemas (`surgesim schema`), so adding or changing a component in the engine fails the SDK build until
 the SDK is updated. Two regression tests also rebuild `examples/mm1.json` and `examples/traffic-spike.json` from
 SDK code and require an exact match.
