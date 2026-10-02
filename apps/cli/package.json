@@ -1,6 +1,6 @@
 {
   "name": "@surgesim/cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "The surgesim command-line tool: run Surgesim models, enforce capacity thresholds in CI, write HTML reports, compare runs, import CloudFormation/CDK.",
   "keywords": [
     "simulation",

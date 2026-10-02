@@ -1,6 +1,6 @@
 {
   "name": "@surgesim/report",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Self-contained HTML reports (inline SVG charts, no external assets) and run comparisons from Surgesim results. No Node or DOM APIs.",
   "keywords": [
     "simulation",

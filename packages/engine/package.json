@@ -1,6 +1,6 @@
 {
   "name": "@surgesim/engine",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Surgesim engine: a discrete event simulator for cloud and distributed systems (queues, worker pools, retries, autoscaling). No DOM or Node APIs, no runtime dependencies.",
   "keywords": [
     "simulation",
