@@ -174,3 +174,61 @@ export function barChart(opts: { rows: BarRow[]; unit: string; title: string }):
     .join("");
   return `<svg class="plot bars" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(opts.title)}"><line class="axis" x1="${left}" x2="${left}" y1="0" y2="${height}"/>${body}</svg>`;
 }
+
+/** One run's per-replication values of a single output, for a strip plot. */
+export interface StripRow {
+  label: string;
+  /** Which series slot (and marker shape) this row uses. */
+  slot: 1 | 2;
+  /** One finite value per replication. */
+  values: number[];
+}
+
+/**
+ * A strip plot: one dot per replication on a shared axis, one row per run, with a bar at each mean. It
+ * shows the spread that a mean and an interval summarise, so a reader can judge whether two runs really
+ * separate. Every dot has a tooltip, and the same numbers are in the report's per-replication tables.
+ */
+export function stripChart(opts: { rows: StripRow[]; unit: string; title: string }): string {
+  const { rows } = opts;
+  const left = 78;
+  const right = 20;
+  const rowH = 40;
+  const top = 6;
+  const axisH = 24;
+  const width = 560;
+  const height = top + rows.length * rowH + axisH;
+  const all = rows.flatMap((r) => r.values);
+  const lo0 = all.length > 0 ? Math.min(...all) : 0;
+  const hi0 = all.length > 0 ? Math.max(...all) : 1;
+  // Dots encode position, not length, so the axis need not start at zero.
+  const { ticks, lo, hi } = niceTicks(lo0, hi0, 4);
+  const sx = (v: number) => left + ((v - lo) / (hi - lo || 1)) * (width - left - right);
+  const f = (n: number) => String(Number(n.toFixed(2)));
+
+  const grid = ticks
+    .map((t) => `<line class="grid" x1="${f(sx(t))}" x2="${f(sx(t))}" y1="${top}" y2="${top + rows.length * rowH}"/><text x="${f(sx(t))}" y="${height - 6}" text-anchor="middle">${esc(compact(t))}</text>`)
+    .join("");
+  const body = rows
+    .map((r, ri) => {
+      const cy = top + ri * rowH + rowH / 2;
+      const mean = r.values.length > 0 ? r.values.reduce((a, b) => a + b, 0) / r.values.length : null;
+      const dots = r.values
+        .map((v, i) => {
+          const y = cy + ((i % 3) - 1) * 7;
+          const tip = `<title>${esc(`${r.label}, replication ${i}: ${fmt(v)}${opts.unit}`)}</title>`;
+          return r.slot === 1
+            ? `<circle class="dot-1" cx="${f(sx(v))}" cy="${f(y)}" r="4" fill-opacity="0.8">${tip}</circle>`
+            : `<rect class="dot-2" x="${f(sx(v) - 4)}" y="${f(y - 4)}" width="8" height="8" rx="2" fill-opacity="0.8">${tip}</rect>`;
+        })
+        .join("");
+      const meanTick =
+        mean === null ? "" : `<line class="mean-tick" x1="${f(sx(mean))}" x2="${f(sx(mean))}" y1="${f(cy - rowH / 2 + 4)}" y2="${f(cy + rowH / 2 - 4)}"><title>${esc(`${r.label} mean: ${fmt(mean)}${opts.unit}`)}</title></line>`;
+      return `<g><text class="ink" x="${left - 10}" y="${f(cy + 4)}" text-anchor="end">${esc(r.label)}</text>${meanTick}${dots}</g>`;
+    })
+    .join("");
+  return (
+    `<svg class="plot strip" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(opts.title)}">${grid}` +
+    `<line class="axis" x1="${left}" x2="${width - right}" y1="${top + rows.length * rowH}" y2="${top + rows.length * rowH}"/>${body}</svg>`
+  );
+}

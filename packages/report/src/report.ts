@@ -1,5 +1,5 @@
-import type { AssertionResult, OutputSummary, RunResults, TimeSeriesResult } from "@surgesim/engine";
-import { barChart, lineChart, type BarRow, type LineSeries } from "./charts.js";
+import { adjustPValues, welchTTest, type AssertionResult, type OutputSummary, type RunResults, type TimeSeriesResult } from "@surgesim/engine";
+import { barChart, lineChart, stripChart, type BarRow, type LineSeries } from "./charts.js";
 import { SCRIPT } from "./script.js";
 import { STYLES } from "./styles.js";
 import { compact, esc, fmt, unitSuffix } from "./util.js";
@@ -216,7 +216,13 @@ function replicationsSection(results: RunResults): string {
   const rows = reps
     .map((r) => `<tr><td class="n">${r.index}</td><td class="n">${r.seed}</td><td class="n">${esc(fmt(r.eventsProcessed))}</td></tr>`)
     .join("");
-  return `<details><summary>Replications (${reps.length})</summary><table><thead><tr><th class="n">#</th><th class="n">Seed</th><th class="n">Events processed</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+  const seeds = `<details><summary>Replications (${reps.length})</summary><table><thead><tr><th class="n">#</th><th class="n">Seed</th><th class="n">Events processed</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+  const head = reps.map((r) => `<th class="n">#${r.index}</th>`).join("");
+  const body = results.outputs
+    .map((o) => `<tr><td>${esc(o.id)}</td>${reps.map((r) => `<td class="n">${esc(fmt(r.outputs[o.id] ?? null))}</td>`).join("")}</tr>`)
+    .join("");
+  const values = `<details><summary>Per-replication values (${results.outputs.length} outputs)</summary><div class="scroll"><table><thead><tr><th>Output</th>${head}</tr></thead><tbody>${body}</tbody></table></div></details>`;
+  return seeds + values;
 }
 
 /**
@@ -241,6 +247,9 @@ export function renderReport(results: RunResults, options: ReportOptions = {}): 
 
 // ---- comparison
 
+/** An output counts as differing when its adjusted p-value is below this. */
+export const SIGNIFICANCE_LEVEL = 0.05;
+
 /** One output compared across two runs. */
 export interface Delta {
   id: string;
@@ -250,17 +259,27 @@ export interface Delta {
   b: OutputSummary;
   diff: number | null;
   pct: number | null;
-  /** True/false when both have confidence intervals; null when it cannot be judged. */
+  /** Two-sided p-value of Welch's t-test on the per-replication values; null with fewer than 2 replications on a side. */
+  pValue: number | null;
+  /** `pValue` adjusted for the number of outputs compared (Benjamini-Hochberg false discovery rate). */
+  adjustedPValue: number | null;
+  /** 95% confidence interval for the true change (B minus A); null when it cannot be computed. */
+  diffCi95: { low: number; high: number } | null;
+  /** True when `adjustedPValue` is below the significance level, false when not; null when it cannot be judged. */
   significant: boolean | null;
 }
 
-function overlaps(a: OutputSummary, b: OutputSummary): boolean | null {
-  if (!a.ci95 || !b.ci95) return null;
-  return a.ci95.low <= b.ci95.high && b.ci95.low <= a.ci95.high;
-}
-
-/** Pair up the outputs of two runs by id and compute the change and a confidence-interval overlap verdict. */
-export function computeDeltas(a: RunResults, b: RunResults): { deltas: Delta[]; onlyA: string[]; onlyB: string[] } {
+/**
+ * Pair up the outputs of two runs by id and test each for a difference. The test is Welch's t-test on
+ * the two sets of per-replication values; because a report compares many outputs at once, the p-values
+ * are adjusted (Benjamini-Hochberg) before they are compared with `alpha` (default 0.05).
+ */
+export function computeDeltas(
+  a: RunResults,
+  b: RunResults,
+  options: { alpha?: number } = {},
+): { deltas: Delta[]; onlyA: string[]; onlyB: string[] } {
+  const alpha = options.alpha ?? SIGNIFICANCE_LEVEL;
   const bById = new Map(b.outputs.map((o) => [o.id, o]));
   const aIds = new Set(a.outputs.map((o) => o.id));
   const deltas: Delta[] = [];
@@ -273,11 +292,40 @@ export function computeDeltas(a: RunResults, b: RunResults): { deltas: Delta[]; 
     }
     const diff = oa.mean !== null && ob.mean !== null ? ob.mean - oa.mean : null;
     const pct = diff !== null && oa.mean !== null && oa.mean !== 0 ? (diff / Math.abs(oa.mean)) * 100 : null;
-    const ov = overlaps(oa, ob);
-    deltas.push({ id: oa.id, component: oa.component, key: oa.key, a: oa, b: ob, diff, pct, significant: ov === null ? null : !ov });
+    const test = welchTTest(oa, ob);
+    deltas.push({
+      id: oa.id,
+      component: oa.component,
+      key: oa.key,
+      a: oa,
+      b: ob,
+      diff,
+      pct,
+      pValue: test ? test.pValue : null,
+      adjustedPValue: null,
+      diffCi95: test ? test.ci95 : null,
+      significant: null,
+    });
   }
+  const adjusted = adjustPValues(deltas.map((d) => d.pValue));
+  deltas.forEach((d, i) => {
+    const q = adjusted[i] ?? null;
+    d.adjustedPValue = q;
+    d.significant = q === null ? null : q < alpha;
+  });
   const onlyB = b.outputs.filter((o) => !aIds.has(o.id)).map((o) => o.id);
   return { deltas, onlyA, onlyB };
+}
+
+/** A p-value for display: "<0.001" for tiny values, otherwise two significant digits. */
+function fmtP(p: number | null): string {
+  if (p === null) return "";
+  return p < 0.001 ? "<0.001" : String(Number(p.toPrecision(2)));
+}
+
+/** The finite per-replication values of one output. */
+function repValues(r: RunResults, id: string): number[] {
+  return r.replications.map((x) => x.outputs[id]).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
 }
 
 function arrow(d: number | null): string {
@@ -286,13 +334,14 @@ function arrow(d: number | null): string {
 
 function verdict(d: Delta): string {
   if (d.significant === null) return d.diff === null ? "n/a" : "needs 2+ replications";
-  return d.significant ? "differs (intervals do not overlap)" : "within noise";
+  return d.significant ? "differs" : "within noise";
 }
 
 /**
  * Render two runs side by side: assertions, the biggest statistically meaningful differences, a delta
- * table for every shared output, and overlaid time series. "Differs" means the two 95% confidence
- * intervals do not overlap (a conservative check); it needs 2+ replications on both sides.
+ * table for every shared output, per-replication detail, and overlaid time series. "Differs" means
+ * Welch's t-test on the per-replication values gives a p-value below 0.05 after adjusting for the
+ * number of outputs compared; it needs 2+ replications on both sides.
  */
 export function renderComparison(a: LabelledResults, b: LabelledResults, options: ReportOptions = {}): string {
   const title = options.title ?? `${a.label} vs ${b.label}`;
@@ -325,9 +374,27 @@ export function renderComparison(a: LabelledResults, b: LabelledResults, options
             (d) =>
               `<div class="card tile"><div class="label">${esc(d.component)} ${esc(d.key)}</div>` +
               `<div class="value">${arrow(d.diff)} ${esc(fmt(Math.abs(d.pct as number)))}%</div>` +
-              `<div class="ci">${esc(fmt(d.a.mean))} to ${esc(fmt(d.b.mean))}${esc(unitSuffix(d.a.unit))}</div></div>`,
+              `<div class="ci">${esc(fmt(d.a.mean))} to ${esc(fmt(d.b.mean))}${esc(unitSuffix(d.a.unit))} · p ${esc(fmtP(d.adjustedPValue))}</div></div>`,
           )
-          .join("")}</section>`;
+          .join("")}</section>` +
+        `<h3 class="spread">Replication spread</h3><p class="sub">One dot per replication; the bar is the mean. Separate clusters mean the difference is not noise.</p><div class="charts">${notable
+          .map((d) => {
+            const unit = unitSuffix(d.a.unit);
+            const ci = d.diffCi95 ? `; change ${fmt(d.diff)}${unit}, 95% CI ${fmt(d.diffCi95.low)} to ${fmt(d.diffCi95.high)}` : "";
+            return (
+              `<section class="card"><h3>${esc(d.component)} · ${esc(d.key)}</h3><span class="unit" style="color:var(--muted);font-size:12px">${esc(`adjusted p ${fmtP(d.adjustedPValue)}${ci}`)}</span>` +
+              stripChart({
+                rows: [
+                  { label: a.label, slot: 1, values: repValues(a.results, d.id) },
+                  { label: b.label, slot: 2, values: repValues(b.results, d.id) },
+                ],
+                unit,
+                title: `${d.component} ${d.key} per replication`,
+              }) +
+              `</section>`
+            );
+          })
+          .join("")}</div>`;
 
   // delta table
   let last = "";
@@ -340,14 +407,36 @@ export function renderComparison(a: LabelledResults, b: LabelledResults, options
         `<tr${first ? ' class="group"' : ""}><td class="comp">${first ? esc(d.component) : ""}</td><td>${esc(d.key)}</td>` +
         `<td class="n">${esc(fmt(d.a.mean))}</td><td class="n">${esc(fmt(d.b.mean))}</td>` +
         `<td class="n delta-up">${esc(arrow(d.diff))} ${esc(d.diff === null ? "n/a" : fmt(d.diff) + suffix)}</td>` +
-        `<td class="n">${esc(d.pct === null ? "" : fmt(d.pct) + "%")}</td><td>${esc(verdict(d))}</td></tr>`
+        `<td class="n">${esc(d.pct === null ? "" : fmt(d.pct) + "%")}</td>` +
+        `<td class="n">${esc(d.diffCi95 ? `${fmt(d.diffCi95.low)} to ${fmt(d.diffCi95.high)}` : "")}</td>` +
+        `<td class="n">${esc(fmtP(d.adjustedPValue))}</td><td>${esc(verdict(d))}</td></tr>`
       );
     })
     .join("");
   const table =
     `<h2>All outputs</h2><section class="card"><div class="scroll"><table><thead><tr><th>Component</th><th>Output</th>` +
-    `<th class="n">${esc(a.label)}</th><th class="n">${esc(b.label)}</th><th class="n">Change</th><th class="n">%</th><th>Verdict</th></tr></thead><tbody>${rows}</tbody></table></div>` +
-    `<p class="note">Change is ${esc(b.label)} minus ${esc(a.label)}, in each output's own unit. "Differs" means the 95% confidence intervals do not overlap; arrows show direction only, not whether it is better.</p></section>`;
+    `<th class="n">${esc(a.label)}</th><th class="n">${esc(b.label)}</th><th class="n">Change</th><th class="n">%</th><th class="n">95% CI of change</th><th class="n">Adj. p</th><th>Verdict</th></tr></thead><tbody>${rows}</tbody></table></div>` +
+    `<p class="note">Change is ${esc(b.label)} minus ${esc(a.label)}, in each output's own unit. p-values come from Welch's t-test on the per-replication values and are adjusted for the number of outputs compared (Benjamini-Hochberg), so the expected share of chance results among the outputs marked "differs" is at most 5%. Arrows show direction only, not whether it is better.</p></section>`;
+
+  // per-replication values, both runs
+  const reps = Math.max(a.results.replications.length, b.results.replications.length);
+  const repRows = deltas
+    .map((d) =>
+      ([a, b] as const)
+        .map((x, i) => {
+          const cells = Array.from({ length: reps }, (_, k) => {
+            const r = x.results.replications[k];
+            return `<td class="n">${esc(r ? fmt(r.outputs[d.id] ?? null) : "")}</td>`;
+          }).join("");
+          return `<tr>${i === 0 ? `<td rowspan="2">${esc(d.id)}</td>` : ""}<td>${esc(x.label)}</td>${cells}</tr>`;
+        })
+        .join(""),
+    )
+    .join("");
+  const repTable =
+    deltas.length === 0 || reps === 0
+      ? ""
+      : `<details><summary>Per-replication values (${deltas.length} outputs)</summary><div class="scroll"><table><thead><tr><th>Output</th><th>Run</th>${Array.from({ length: reps }, (_, k) => `<th class="n">#${k}</th>`).join("")}</tr></thead><tbody>${repRows}</tbody></table></div></details>`;
 
   // overlaid series
   let overlays = "";
@@ -397,6 +486,7 @@ export function renderComparison(a: LabelledResults, b: LabelledResults, options
     assertions +
     notableHtml +
     table +
+    repTable +
     overlays +
     (notes.length > 0 ? `<p class="note">${esc(notes.join(" "))}</p>` : "") +
     `<footer>Generated by Surgesim · comparison of two runs</footer>`;

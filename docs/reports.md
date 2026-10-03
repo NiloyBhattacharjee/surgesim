@@ -33,11 +33,30 @@ Charts follow one rule: one y-axis per chart. Different measures get different c
 - both runs overlaid on each shared time series (A is a blue circle, B an orange square, so the two are distinguishable
   without color).
 
-**"Differs" means the two 95% confidence intervals do not overlap.** That is a conservative check: two runs can
-still differ when their intervals overlap slightly, but if the intervals are separate the difference is not noise. It
-needs 2+ replications on both sides; with one replication the verdict reads "needs 2+ replications" and nothing is
-called significant. Arrows show direction only. Whether higher is *better* depends on the output, and the report
-does not guess.
+**"Differs" is a hypothesis test, not an interval check.** For each shared output the report runs **Welch's t-test**
+on the two sets of per-replication values (it does not assume equal variances) and shows:
+
+- the **95% confidence interval for the change** (B minus A), which is the number to quote in a design review: "p99
+  went up by 17 s, 95% CI 15 to 19",
+- the **adjusted p-value**, and a verdict of `differs` (adjusted p below 0.05) or `within noise`.
+
+A report compares dozens of outputs at once, and at a 5% level about one in twenty would look different by pure chance.
+So the p-values are adjusted with the **Benjamini-Hochberg** procedure, which keeps the expected share of chance results
+among the outputs marked `differs` at or below 5%. Related outputs (p50, p95 and p99 of the same sink, or a count and
+the arrivals that feed it) move together, so treat them as one finding, not several.
+
+It needs 2+ replications on both sides; with one replication the verdict reads "needs 2+ replications" and nothing is
+called significant. Use at least 5 to 10 replications for a verdict you intend to defend. Arrows show direction only.
+Whether higher is *better* depends on the output, and the report does not guess.
+
+Two runs that use the same seed share random numbers wherever their components share names, which makes the runs
+positively correlated. The test ignores that, so it can only be *conservative* (a real difference may read `within
+noise`), never over-eager. Use more replications or a different seed on one side if you need more power.
+
+**Drill-down to the replications.** Under *Biggest differences* a strip plot per output shows one dot per replication
+for each run, with a bar at the mean. Separate clusters mean a real difference; overlapping clouds mean noise. Every dot
+has a tooltip, and *Per-replication values* (a collapsed table under the comparison, and under a single-run report)
+lists every number, so nothing in a chart exists only as a picture.
 
 Outputs present on only one side are listed rather than dropped. Series are only overlaid when both runs sampled at the
 same times.

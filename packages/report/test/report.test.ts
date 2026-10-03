@@ -4,7 +4,7 @@ import { computeDeltas, renderComparison, renderReport } from "../src/index.js";
 
 type Comp = { type: string; name: string; inputs?: object; links?: object };
 
-function results(opts: { name?: string; workers?: number; replications?: number; assertions?: unknown[]; series?: boolean } = {}): RunResults {
+function results(opts: { name?: string; workers?: number; replications?: number; seed?: number; assertions?: unknown[]; series?: boolean } = {}): RunResults {
   const components: Comp[] = [
     { type: "EntityGenerator", name: "gen", inputs: { interArrivalTime: { dist: "exponential", mean: 0.5 } }, links: { next: "q" } },
     { type: "Queue", name: "q" },
@@ -17,7 +17,7 @@ function results(opts: { name?: string; workers?: number; replications?: number;
     settings: {
       duration: 400,
       replications: opts.replications ?? 4,
-      seed: 3,
+      seed: opts.seed ?? 3,
       ...(opts.series === false ? {} : { timeSeries: { interval: 20, outputs: ["q.QueueLength", "pool.BusyWorkers"] } }),
     },
     components,
@@ -62,6 +62,7 @@ describe("renderReport", () => {
     expect(text(html)).toContain("q · QueueLength");
     expect(html).toContain("<h2>All results</h2>");
     expect(html).toContain("Replications (4)");
+    expect(html).toContain("Per-replication values (");
   });
 
   it("every value shown also exists without script: charts carry a data table", () => {
@@ -130,16 +131,77 @@ describe("renderComparison", () => {
     expect(html).toContain("<summary>Table view</summary>");
   });
 
-  it("flags only differences whose confidence intervals do not overlap", () => {
+  it("flags a difference only when the test, adjusted for the number of outputs, says so", () => {
     const { deltas } = computeDeltas(a, b);
     const mean = deltas.find((d) => d.id === "sink.mean")!;
     expect(mean.significant).toBe(true); // 3 workers vs 1 worker at rho ~ 0.67 vs 2: wildly different
+    expect(mean.pValue).toBeLessThan(0.001);
+    expect(mean.adjustedPValue as number).toBeGreaterThanOrEqual(mean.pValue as number);
+    // the interval for the change excludes zero and contains the observed change
+    expect(mean.diffCi95!.low).toBeGreaterThan(0);
+    expect(mean.diff as number).toBeGreaterThan(mean.diffCi95!.low);
+    expect(mean.diff as number).toBeLessThan(mean.diffCi95!.high);
     const generated = deltas.find((d) => d.id === "gen.NumberGenerated")!;
     expect(generated.diff).toBe(0); // same seed, same arrivals
     expect(generated.significant).toBe(false);
-    expect(html).toContain("differs (intervals do not overlap)");
+    for (const d of deltas) expect(d.significant).toBe(d.adjustedPValue === null ? null : d.adjustedPValue < 0.05);
+    expect(html).toContain("differs");
     expect(html).toContain("within noise");
     expect(html).toContain("<h2>Biggest differences</h2>");
+    expect(text(html)).toContain("Welch");
+    expect(html).not.toContain("intervals do not overlap");
+  });
+
+  it("does not call two runs of the same model with different seeds different", () => {
+    const x = results({ seed: 11, replications: 8, series: false });
+    const y = results({ seed: 99, replications: 8, series: false });
+    const { deltas } = computeDeltas(x, y);
+    expect(deltas.length).toBeGreaterThan(10);
+    expect(deltas.filter((d) => d.significant === true).map((d) => d.id)).toEqual([]);
+  });
+
+  it("is a stronger claim than overlapping intervals: a small but consistent shift is detected", () => {
+    // 4 replications each: the means differ by ~1.5 sd, so 95% intervals overlap, but each run is a stable sample
+    const mk = (mean: number, sd: number): RunResults => {
+      const r = results({ replications: 2, series: false });
+      const o = r.outputs.find((x) => x.id === "sink.mean")!;
+      o.n = 6;
+      o.mean = mean;
+      o.stdDev = sd;
+      o.ci95 = { low: mean - 2.5706 * (sd / Math.sqrt(6)), high: mean + 2.5706 * (sd / Math.sqrt(6)), halfWidth: 2.5706 * (sd / Math.sqrt(6)) };
+      return r;
+    };
+    const lo = mk(10, 1);
+    const hi = mk(11.4, 1);
+    const ol = lo.outputs.find((x) => x.id === "sink.mean")!.ci95!;
+    const oh = hi.outputs.find((x) => x.id === "sink.mean")!.ci95!;
+    expect(ol.high).toBeGreaterThan(oh.low); // the old overlap rule would say "within noise"
+    const d = computeDeltas(lo, hi).deltas.find((x) => x.id === "sink.mean")!;
+    expect(d.pValue).toBeLessThan(0.05);
+  });
+
+  it("needs 2+ replications on both sides", () => {
+    const one = results({ replications: 1, series: false });
+    const many = results({ replications: 4, series: false });
+    const d = computeDeltas(one, many).deltas.find((x) => x.id === "sink.mean")!;
+    expect(d.pValue).toBeNull();
+    expect(d.adjustedPValue).toBeNull();
+    expect(d.diffCi95).toBeNull();
+    expect(d.significant).toBeNull();
+    expect(renderComparison({ label: "one", results: one }, { label: "many", results: many })).toContain("needs 2+ replications");
+  });
+
+  it("drills down to every replication: a strip plot per big difference and a table of all values", () => {
+    expect((html.match(/<svg class="plot strip"/g) ?? []).length).toBeGreaterThan(0);
+    expect(html).toContain("Replication spread");
+    // one dot per replication per run, each with a tooltip
+    const firstStrip = /<svg class="plot strip"[\s\S]*?<\/svg>/.exec(html)![0];
+    expect((firstStrip.match(/<title>[^<]*replication \d/g) ?? []).length).toBe(8);
+    expect(html).toContain("Per-replication values (");
+    const meanRow = /<td rowspan="2">sink\.mean<\/td><td>3 workers<\/td>(?:<td class="n">[^<]*<\/td>){4}<\/tr><tr><td>1 worker<\/td>(?:<td class="n">[^<]*<\/td>){4}<\/tr>/;
+    expect(html).toMatch(meanRow);
+    const t = text(html);
+    expect(t).not.toMatch(/undefined|NaN|null/);
   });
 
   it("computes change as B minus A", () => {

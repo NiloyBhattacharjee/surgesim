@@ -297,8 +297,8 @@ Not built yet:
 - Components: no DynamoDB, SNS fan-out, load balancers, FIFO queues, batching, step scaling or multi-region.
 - Distributions are fitted one at a time from independent samples; there is no mixture model, expression language or
   richer unit system.
-- Reports do not yet embed a model diff or per-replication drill-downs, and "differs" in a comparison is a conservative
-  confidence-interval overlap check, not a formal hypothesis test.
+- Comparison reports do not yet embed a diff of the two models themselves. "Differs" is Welch's t-test on the
+  per-replication values with a Benjamini-Hochberg correction across outputs (see [docs/reports.md](docs/reports.md)).
 
 ## License
 

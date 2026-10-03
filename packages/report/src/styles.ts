@@ -94,6 +94,8 @@ svg text.val { fill: var(--ink); font-weight: 600; }
 .band-1 { fill: var(--series-1); opacity: 0.10; }
 .band-2 { fill: var(--series-2); opacity: 0.10; }
 .dot-1 { fill: var(--series-1); }
+.spread { margin: 22px 0 2px; font-size: 15px; }
+.mean-tick { stroke: var(--ink); stroke-width: 2; stroke-linecap: round; }
 .dot-2 { fill: var(--series-2); }
 .ring { stroke: var(--surface-1); stroke-width: 2; }
 .bar-1 { fill: var(--series-1); }

@@ -329,7 +329,7 @@ describe("HTML reports and comparisons", () => {
     expect(pcts).toEqual([...pcts].sort((x, y) => y - x));
     const html = h.fs.files.get("out/cmp.html")!;
     expect(html).toContain("<h1>3 workers vs 1 worker</h1>");
-    expect(html).toContain("differs (intervals do not overlap)");
+    expect(html).toContain("differs");
   });
 
   it("compare accepts saved results files and defaults labels to the file names", async () => {
