@@ -1,4 +1,4 @@
-import { adjustPValues, welchTTest, type AssertionResult, type OutputSummary, type RunResults, type TimeSeriesResult } from "@surgesim/engine";
+import { adjustPValues, pairedTTest, welchTTest, type AssertionResult, type OutputSummary, type RunResults, type TimeSeriesResult } from "@surgesim/engine";
 import { barChart, lineChart, stripChart, type BarRow, type LineSeries } from "./charts.js";
 import { SCRIPT } from "./script.js";
 import { STYLES } from "./styles.js";
@@ -259,7 +259,9 @@ export interface Delta {
   b: OutputSummary;
   diff: number | null;
   pct: number | null;
-  /** Two-sided p-value of Welch's t-test on the per-replication values; null with fewer than 2 replications on a side. */
+  /** Which test produced `pValue`: a paired test when both runs used the same replication seeds, else Welch's; null when untestable. */
+  method: "paired" | "welch" | null;
+  /** Two-sided p-value of the t-test on the per-replication values; null with fewer than 2 replications on a side. */
   pValue: number | null;
   /** `pValue` adjusted for the number of outputs compared (Benjamini-Hochberg false discovery rate). */
   adjustedPValue: number | null;
@@ -269,10 +271,28 @@ export interface Delta {
   significant: boolean | null;
 }
 
+/** True when replication k of A and of B used the same seed for every k, so the runs can be compared pair by pair. */
+function sameSeeds(a: RunResults, b: RunResults): boolean {
+  return a.replications.length === b.replications.length && a.replications.every((r, k) => r.seed === (b.replications[k] as { seed: number }).seed);
+}
+
+/** The per-replication values of one output in replication order, or null if any is missing. */
+function completeValues(r: RunResults, id: string): number[] | null {
+  const out: number[] = [];
+  for (const x of r.replications) {
+    const v = x.outputs[id];
+    if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    out.push(v);
+  }
+  return out;
+}
+
 /**
- * Pair up the outputs of two runs by id and test each for a difference. The test is Welch's t-test on
- * the two sets of per-replication values; because a report compares many outputs at once, the p-values
- * are adjusted (Benjamini-Hochberg) before they are compared with `alpha` (default 0.05).
+ * Pair up the outputs of two runs by id and test each for a difference. When both runs used the same
+ * replication seeds they share random numbers, so the test is a paired t-test on the per-replication
+ * differences, which cancels the noise the runs have in common. Otherwise it is Welch's t-test on the two
+ * sets of values. Because a report compares many outputs at once, the p-values are adjusted
+ * (Benjamini-Hochberg) before they are compared with `alpha` (default 0.05).
  */
 export function computeDeltas(
   a: RunResults,
@@ -282,6 +302,7 @@ export function computeDeltas(
   const alpha = options.alpha ?? SIGNIFICANCE_LEVEL;
   const bById = new Map(b.outputs.map((o) => [o.id, o]));
   const aIds = new Set(a.outputs.map((o) => o.id));
+  const paired = sameSeeds(a, b);
   const deltas: Delta[] = [];
   const onlyA: string[] = [];
   for (const oa of a.outputs) {
@@ -292,7 +313,10 @@ export function computeDeltas(
     }
     const diff = oa.mean !== null && ob.mean !== null ? ob.mean - oa.mean : null;
     const pct = diff !== null && oa.mean !== null && oa.mean !== 0 ? (diff / Math.abs(oa.mean)) * 100 : null;
-    const test = welchTTest(oa, ob);
+    const va = paired ? completeValues(a, oa.id) : null;
+    const vb = paired ? completeValues(b, oa.id) : null;
+    const pairedResult = va && vb ? pairedTTest(va, vb) : null;
+    const test = pairedResult ?? welchTTest(oa, ob);
     deltas.push({
       id: oa.id,
       component: oa.component,
@@ -301,6 +325,7 @@ export function computeDeltas(
       b: ob,
       diff,
       pct,
+      method: test ? (pairedResult ? "paired" : "welch") : null,
       pValue: test ? test.pValue : null,
       adjustedPValue: null,
       diffCi95: test ? test.ci95 : null,
@@ -328,6 +353,14 @@ function repValues(r: RunResults, id: string): number[] {
   return r.replications.map((x) => x.outputs[id]).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
 }
 
+/** Names the test(s) behind a set of deltas, for captions. */
+export function methodNote(deltas: readonly Delta[]): string {
+  const used = new Set(deltas.map((d) => d.method).filter((m) => m !== null));
+  if (used.has("paired") && used.has("welch")) return "a paired t-test where the runs share seeds and Welch's t-test elsewhere";
+  if (used.has("paired")) return "a paired t-test (the runs share replication seeds, so each pair is compared)";
+  return "Welch's t-test";
+}
+
 function arrow(d: number | null): string {
   return d === null || d === 0 ? "" : d > 0 ? "▲" : "▼";
 }
@@ -340,7 +373,7 @@ function verdict(d: Delta): string {
 /**
  * Render two runs side by side: assertions, the biggest statistically meaningful differences, a delta
  * table for every shared output, per-replication detail, and overlaid time series. "Differs" means
- * Welch's t-test on the per-replication values gives a p-value below 0.05 after adjusting for the
+ * a t-test on the per-replication values (paired when both runs used the same seeds, else Welch) gives a p-value below 0.05 after adjusting for the
  * number of outputs compared; it needs 2+ replications on both sides.
  */
 export function renderComparison(a: LabelledResults, b: LabelledResults, options: ReportOptions = {}): string {
@@ -416,7 +449,7 @@ export function renderComparison(a: LabelledResults, b: LabelledResults, options
   const table =
     `<h2>All outputs</h2><section class="card"><div class="scroll"><table><thead><tr><th>Component</th><th>Output</th>` +
     `<th class="n">${esc(a.label)}</th><th class="n">${esc(b.label)}</th><th class="n">Change</th><th class="n">%</th><th class="n">95% CI of change</th><th class="n">Adj. p</th><th>Verdict</th></tr></thead><tbody>${rows}</tbody></table></div>` +
-    `<p class="note">Change is ${esc(b.label)} minus ${esc(a.label)}, in each output's own unit. p-values come from Welch's t-test on the per-replication values and are adjusted for the number of outputs compared (Benjamini-Hochberg), so the expected share of chance results among the outputs marked "differs" is at most 5%. Arrows show direction only, not whether it is better.</p></section>`;
+    `<p class="note">Change is ${esc(b.label)} minus ${esc(a.label)}, in each output's own unit. p-values come from ${esc(methodNote(deltas))} on the per-replication values and are adjusted for the number of outputs compared (Benjamini-Hochberg), so the expected share of chance results among the outputs marked "differs" is at most 5%. Arrows show direction only, not whether it is better.</p></section>`;
 
   // per-replication values, both runs
   const reps = Math.max(a.results.replications.length, b.results.replications.length);

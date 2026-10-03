@@ -87,19 +87,22 @@ export interface SampleStats {
   stdDev: number | null;
 }
 
-/** The outcome of comparing two samples with Welch's t-test. */
-export interface WelchResult {
+/** The outcome of a two-sample t-test (Welch's or paired). */
+export interface TTestResult {
   /** `b.mean - a.mean`. */
   diff: number;
   /** The t statistic (±Infinity when both samples have zero variance and different means). */
   t: number;
-  /** Welch–Satterthwaite degrees of freedom. */
+  /** Degrees of freedom (Welch–Satterthwaite, or pairs - 1 for a paired test). */
   df: number;
   /** Two-sided p-value for the hypothesis that the two true means are equal. */
   pValue: number;
   /** 95% confidence interval for the true difference of means. */
   ci95: { low: number; high: number };
 }
+
+/** The outcome of comparing two samples with Welch's t-test. */
+export type WelchResult = TTestResult;
 
 /**
  * Welch's two-sample t-test (unequal variances) for `b.mean - a.mean`, from per-sample summaries.
@@ -123,6 +126,37 @@ export function welchTTest(a: SampleStats, b: SampleStats): WelchResult | null {
   const df = (se2 * se2) / ((va * va) / (a.n - 1) + (vb * vb) / (b.n - 1));
   const half = tQuantile(0.975, df) * se;
   return { diff, t: diff / se, df, pValue: tTwoSidedP(diff / se, df), ci95: { low: diff - half, high: diff + half } };
+}
+
+/**
+ * Paired t-test for `b[i] - a[i]`, where `a[i]` and `b[i]` belong together (the same replication seed, so
+ * the runs share random numbers). It tests the mean of the per-pair differences, which removes the noise
+ * the two runs have in common, so it detects smaller changes than Welch's test on the same data.
+ * Returns null with fewer than 2 pairs, mismatched lengths, or any non-finite value. If every difference is
+ * identical the change is exact: p is 1 when it is zero and 0 otherwise.
+ *
+ * Valid when the pairs are independent of one another, which holds for replications with different seeds.
+ * If the runs happen to share no randomness the pairing buys nothing and costs about half the degrees of freedom.
+ */
+export function pairedTTest(a: readonly number[], b: readonly number[]): TTestResult | null {
+  const n = a.length;
+  if (n < 2 || b.length !== n) return null;
+  const diffs: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const d = (b[i] as number) - (a[i] as number);
+    if (!Number.isFinite(d)) return null;
+    diffs.push(d);
+  }
+  const mean = diffs.reduce((s, d) => s + d, 0) / n;
+  const variance = diffs.reduce((s, d) => s + (d - mean) * (d - mean), 0) / (n - 1);
+  const df = n - 1;
+  // Differences that are equal up to rounding are treated as constant.
+  if (!(Math.sqrt(variance) > 1e-12 * Math.max(1, Math.abs(mean)))) {
+    return { diff: mean, t: mean === 0 ? 0 : mean > 0 ? Infinity : -Infinity, df, pValue: mean === 0 ? 1 : 0, ci95: { low: mean, high: mean } };
+  }
+  const se = Math.sqrt(variance / n);
+  const half = tQuantile(0.975, df) * se;
+  return { diff: mean, t: mean / se, df, pValue: tTwoSidedP(mean / se, df), ci95: { low: mean - half, high: mean + half } };
 }
 
 /**

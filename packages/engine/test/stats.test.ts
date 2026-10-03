@@ -4,6 +4,7 @@ import {
   Tally,
   TimeWeightedStat,
   adjustPValues,
+  pairedTTest,
   summarize,
   tCdf,
   tQuantile,
@@ -204,6 +205,72 @@ describe("welchTTest", () => {
     for (let i = 0; i < trials; i++) {
       const r = welchTTest(sample(10), sample(10))!;
       if (r.pValue < 0.05) rejected++;
+    }
+    expect(rejected / trials).toBeGreaterThan(0.03);
+    expect(rejected / trials).toBeLessThan(0.07);
+  });
+});
+
+describe("pairedTTest", () => {
+  it("matches a hand calculation", () => {
+    // differences 1,2,2,3,3: mean 2.2, variance 0.7, se sqrt(0.7 / 5), t = 5.8797 on 4 df
+    const a = [1, 2, 3, 4, 5];
+    const b = [2, 4, 5, 7, 8];
+    const r = pairedTTest(a, b)!;
+    expect(r.diff).toBeCloseTo(2.2, 12);
+    expect(r.df).toBe(4);
+    expect(r.t).toBeCloseTo(2.2 / Math.sqrt(0.14), 10);
+    // the two-sided critical values for 4 df are 4.604 (p = 0.01) and 5.598 (p = 0.005) and 8.610 (p = 0.001)
+    expect(r.pValue).toBeGreaterThan(0.001);
+    expect(r.pValue).toBeLessThan(0.005);
+    expect(r.ci95.low).toBeCloseTo(2.2 - 2.7764 * Math.sqrt(0.14), 3);
+    expect(r.ci95.high).toBeCloseTo(2.2 + 2.7764 * Math.sqrt(0.14), 3);
+    // the same numbers treated as unrelated samples are far less convincing
+    const w = welchTTest(summarize(a), summarize(b))!;
+    expect(w.pValue).toBeGreaterThan(0.05);
+  });
+
+  it("is antisymmetric in the difference, symmetric in p, and its interval excludes zero exactly when p < 0.05", () => {
+    const a = [3, 1, 4, 1, 5, 9];
+    const b = [4, 3, 4, 2, 9, 12];
+    const ab = pairedTTest(a, b)!;
+    const ba = pairedTTest(b, a)!;
+    expect(ba.diff).toBeCloseTo(-ab.diff, 12);
+    expect(ba.pValue).toBeCloseTo(ab.pValue, 12);
+    for (const shift of [0, 0.5, 1, 2, 4]) {
+      const r = pairedTTest(a, b.map((v) => v + shift))!;
+      expect(r.pValue < 0.05).toBe(r.ci95.low > 0 || r.ci95.high < 0);
+    }
+  });
+
+  it("cannot be computed from fewer than 2 pairs, unequal lengths or non-finite values", () => {
+    expect(pairedTTest([1], [2])).toBeNull();
+    expect(pairedTTest([1, 2, 3], [1, 2])).toBeNull();
+    expect(pairedTTest([1, 2, 3], [1, NaN, 3])).toBeNull();
+    expect(pairedTTest([1, 2, 3], [1, Infinity, 3])).toBeNull();
+  });
+
+  it("treats a constant difference as exact, including one that only differs by rounding", () => {
+    expect(pairedTTest([1, 2, 3], [1, 2, 3])!.pValue).toBe(1);
+    const shifted = pairedTTest([1, 2, 3], [3, 4, 5])!;
+    expect(shifted.pValue).toBe(0);
+    expect(shifted.ci95).toEqual({ low: 2, high: 2 });
+    expect(pairedTTest([0.1, 0.2, 0.3], [0.1 + 0.7, 0.2 + 0.7, 0.3 + 0.7])!.pValue).toBe(0);
+  });
+
+  it("false-positive rate is close to alpha even when the two runs are strongly correlated", () => {
+    let seed = 987;
+    const u = () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return (seed + 0.5) / 4294967296;
+    };
+    let rejected = 0;
+    const trials = 2000;
+    for (let i = 0; i < trials; i++) {
+      const common = Array.from({ length: 8 }, () => -Math.log(u()) * 10); // large shared noise
+      const a = common.map((c) => c + -Math.log(u()));
+      const b = common.map((c) => c + -Math.log(u()));
+      if (pairedTTest(a, b)!.pValue < 0.05) rejected++;
     }
     expect(rejected / trials).toBeGreaterThan(0.03);
     expect(rejected / trials).toBeLessThan(0.07);

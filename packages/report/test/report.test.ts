@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { loadModel, runModel, type RunResults } from "@surgesim/engine";
-import { computeDeltas, renderComparison, renderReport } from "../src/index.js";
+import { loadModel, runModel, summarize, type RunResults } from "@surgesim/engine";
+import { computeDeltas, methodNote, renderComparison, renderReport } from "../src/index.js";
 
 type Comp = { type: string; name: string; inputs?: object; links?: object };
 
@@ -148,7 +148,8 @@ describe("renderComparison", () => {
     expect(html).toContain("differs");
     expect(html).toContain("within noise");
     expect(html).toContain("<h2>Biggest differences</h2>");
-    expect(text(html)).toContain("Welch");
+    expect(deltas.find((d) => d.id === "sink.mean")!.method).toBe("paired"); // same seeds on both sides
+    expect(text(html)).toContain("paired t-test");
     expect(html).not.toContain("intervals do not overlap");
   });
 
@@ -173,11 +174,66 @@ describe("renderComparison", () => {
     };
     const lo = mk(10, 1);
     const hi = mk(11.4, 1);
+    for (const [i, r] of [lo, hi].entries()) r.replications.forEach((x) => (x.seed = 1000 * i + x.index)); // different seeds: Welch
     const ol = lo.outputs.find((x) => x.id === "sink.mean")!.ci95!;
     const oh = hi.outputs.find((x) => x.id === "sink.mean")!.ci95!;
     expect(ol.high).toBeGreaterThan(oh.low); // the old overlap rule would say "within noise"
     const d = computeDeltas(lo, hi).deltas.find((x) => x.id === "sink.mean")!;
+    expect(d.method).toBe("welch");
     expect(d.pValue).toBeLessThan(0.05);
+  });
+
+  describe("runs that share replication seeds", () => {
+    /** Two runs whose sink.mean values share a large common noise per replication and differ by a small constant shift. */
+    const correlated = (shift: number, sameSeeds: boolean) => {
+      const x = results({ replications: 8, series: false });
+      const y = structuredClone(x);
+      const noise = [4.1, -3.2, 6.7, -5.5, 0.9, 7.8, -6.1, 2.3];
+      const jitter = [0.02, -0.03, 0.01, 0.04, -0.02, 0.03, -0.01, 0];
+      x.replications.forEach((r, k) => (r.outputs["sink.mean"] = 10 + noise[k]!));
+      y.replications.forEach((r, k) => (r.outputs["sink.mean"] = 10 + noise[k]! + shift + jitter[k]!));
+      if (!sameSeeds) y.replications.forEach((r) => (r.seed += 500));
+      for (const r of [x, y]) {
+        const o = r.outputs.find((q) => q.id === "sink.mean")!;
+        const s = summarize(r.replications.map((q) => q.outputs["sink.mean"] as number));
+        Object.assign(o, { n: s.n, mean: s.mean, stdDev: s.stdDev });
+      }
+      return { x, y };
+    };
+
+    it("uses a paired test, which sees a shift that is small next to the noise the runs share", () => {
+      const { x, y } = correlated(0.5, true);
+      const d = computeDeltas(x, y).deltas.find((q) => q.id === "sink.mean")!;
+      expect(d.method).toBe("paired");
+      expect(d.pValue).toBeLessThan(0.001);
+      expect(d.diffCi95!.low).toBeGreaterThan(0.4);
+      expect(d.diffCi95!.high).toBeLessThan(0.6);
+    });
+
+    it("the same data without shared seeds is compared with Welch's test and is lost in the noise", () => {
+      const { x, y } = correlated(0.5, false);
+      const d = computeDeltas(x, y).deltas.find((q) => q.id === "sink.mean")!;
+      expect(d.method).toBe("welch");
+      expect(d.pValue).toBeGreaterThan(0.5);
+    });
+
+    it("falls back to Welch when a replication value is missing, or the replication counts differ", () => {
+      const { x, y } = correlated(0.5, true);
+      y.replications[3]!.outputs["sink.mean"] = null;
+      expect(computeDeltas(x, y).deltas.find((q) => q.id === "sink.mean")!.method).toBe("welch");
+      const { x: x2, y: y2 } = correlated(0.5, true);
+      y2.replications.pop();
+      expect(computeDeltas(x2, y2).deltas.find((q) => q.id === "sink.mean")!.method).toBe("welch");
+    });
+
+    it("says which test it used", () => {
+      const { x, y } = correlated(0.5, true);
+      const paired = computeDeltas(x, y).deltas;
+      expect(methodNote(paired)).toContain("paired t-test");
+      expect(methodNote(computeDeltas(x, results({ replications: 8, series: false, seed: 77 })).deltas)).toBe("Welch's t-test");
+      const out = renderComparison({ label: "A", results: x }, { label: "B", results: y });
+      expect(text(out)).toContain("share replication seeds");
+    });
   });
 
   it("needs 2+ replications on both sides", () => {

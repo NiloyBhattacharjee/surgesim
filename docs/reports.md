@@ -33,8 +33,8 @@ Charts follow one rule: one y-axis per chart. Different measures get different c
 - both runs overlaid on each shared time series (A is a blue circle, B an orange square, so the two are distinguishable
   without color).
 
-**"Differs" is a hypothesis test, not an interval check.** For each shared output the report runs **Welch's t-test**
-on the two sets of per-replication values (it does not assume equal variances) and shows:
+**"Differs" is a hypothesis test, not an interval check.** For each shared output the report runs a t-test on the
+per-replication values (which test is described below) and shows:
 
 - the **95% confidence interval for the change** (B minus A), which is the number to quote in a design review: "p99
   went up by 17 s, 95% CI 15 to 19",
@@ -49,9 +49,16 @@ It needs 2+ replications on both sides; with one replication the verdict reads "
 called significant. Use at least 5 to 10 replications for a verdict you intend to defend. Arrows show direction only.
 Whether higher is *better* depends on the output, and the report does not guess.
 
-Two runs that use the same seed share random numbers wherever their components share names, which makes the runs
-positively correlated. The test ignores that, so it can only be *conservative* (a real difference may read `within
-noise`), never over-eager. Use more replications or a different seed on one side if you need more power.
+**Which test.** Randomness is drawn per component from (seed, component name), so two runs with the same seed share
+random numbers wherever their components share names, and replication *k* of A is correlated with replication *k* of B.
+When both runs used the same replication seeds (the default when you give both the same `seed` and `replications`),
+the report runs a **paired t-test** on the per-replication differences. That cancels the noise the two runs have in
+common, so it detects much smaller changes than a test that ignores the pairing. The report says "paired" in its
+captions when it did this. In every other case (different seeds, different replication counts, or an output missing in
+some replication) it runs **Welch's t-test**, which does not assume equal variances and is valid for independent runs.
+
+If the models differ so much that they share no randomness, pairing gains nothing and costs about half the degrees of
+freedom; give the two runs different seeds if that is your case.
 
 **Drill-down to the replications.** Under *Biggest differences* a strip plot per output shows one dot per replication
 for each run, with a bar at the mean. Separate clusters mean a real difference; overlapping clouds mean noise. Every dot
