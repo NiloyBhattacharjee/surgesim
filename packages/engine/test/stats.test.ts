@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { ExactPercentileTracker, Tally, TimeWeightedStat, summarize, tQuantile975 } from "../src/stats/index.js";
+import {
+  ExactPercentileTracker,
+  Tally,
+  TimeWeightedStat,
+  adjustPValues,
+  summarize,
+  tCdf,
+  tQuantile,
+  tQuantile975,
+  tTwoSidedP,
+  welchTTest,
+} from "../src/stats/index.js";
 
 describe("TimeWeightedStat", () => {
   it("integrates over time on a hand-calculable scenario", () => {
@@ -96,5 +107,133 @@ describe("summarize", () => {
     expect(tQuantile975(60)).toBeCloseTo(2.0003, 3);
     expect(tQuantile975(120)).toBeCloseTo(1.9799, 3);
     expect(tQuantile975(100000)).toBeCloseTo(1.96, 3);
+  });
+});
+
+describe("Student t distribution", () => {
+  it("matches the exact closed forms for 1 and 2 degrees of freedom", () => {
+    for (const t of [0.1, 0.5, 1, 2.5, 10, 100]) {
+      // df = 1 is the Cauchy distribution, df = 2 has P(|T| >= t) = 1 - t / sqrt(t^2 + 2)
+      expect(tTwoSidedP(t, 1)).toBeCloseTo(1 - (2 / Math.PI) * Math.atan(t), 12);
+      expect(tTwoSidedP(t, 2)).toBeCloseTo(1 - t / Math.sqrt(t * t + 2), 12);
+    }
+  });
+
+  it("reproduces published two-sided 5% critical values", () => {
+    for (const [df, crit] of [[5, 2.5706], [10, 2.2281], [20, 2.086], [30, 2.0423], [120, 1.9799]] as const) {
+      expect(tTwoSidedP(crit, df)).toBeCloseTo(0.05, 4);
+    }
+  });
+
+  it("is symmetric, and the quantile inverts the CDF (also for fractional df)", () => {
+    expect(tCdf(0, 7)).toBe(0.5);
+    expect(tCdf(-1.3, 7) + tCdf(1.3, 7)).toBeCloseTo(1, 12);
+    for (const df of [1, 2.5, 7.3, 19.998, 250]) {
+      for (const p of [0.6, 0.9, 0.975, 0.999]) expect(tCdf(tQuantile(p, df), df)).toBeCloseTo(p, 10);
+    }
+    expect(tQuantile(0.975, 10)).toBeCloseTo(2.2281, 4);
+    expect(tQuantile(0.025, 10)).toBeCloseTo(-2.2281, 4);
+    expect(tQuantile(0.975, 10)).toBeCloseTo(tQuantile975(10), 3);
+  });
+
+  it("handles degenerate inputs without throwing", () => {
+    expect(tTwoSidedP(Infinity, 5)).toBe(0);
+    expect(tTwoSidedP(0, 5)).toBe(1);
+    expect(tTwoSidedP(1, 0)).toBeNaN();
+    expect(tQuantile(1, 5)).toBeNaN();
+  });
+});
+
+describe("welchTTest", () => {
+  it("matches a hand calculation: n 10 mean 20 sd 5 against n 12 mean 24 sd 6", () => {
+    const r = welchTTest({ n: 10, mean: 20, stdDev: 5 }, { n: 12, mean: 24, stdDev: 6 });
+    expect(r).not.toBeNull();
+    // se^2 = 25/10 + 36/12 = 5.5; t = 4 / sqrt(5.5); df = 5.5^2 / (2.5^2/9 + 3^2/11)
+    expect(r!.diff).toBe(4);
+    expect(r!.t).toBeCloseTo(4 / Math.sqrt(5.5), 12);
+    expect(r!.df).toBeCloseTo(30.25 / (6.25 / 9 + 9 / 11), 10);
+    expect(r!.pValue).toBeGreaterThan(0.1); // t = 1.706 is just under the two-sided 10% critical value of 1.725 (df 20)
+    expect(r!.pValue).toBeLessThan(0.11);
+    // the 95% interval for the difference excludes zero exactly when p < 0.05
+    expect(r!.ci95.low).toBeLessThan(0);
+    expect(r!.ci95.high).toBeGreaterThan(4);
+  });
+
+  it("the interval excludes zero exactly when p < 0.05", () => {
+    for (const shift of [0, 1, 2, 3, 5]) {
+      const r = welchTTest({ n: 8, mean: 10, stdDev: 2 }, { n: 9, mean: 10 + shift, stdDev: 3 })!;
+      expect(r.pValue < 0.05).toBe(r.ci95.low > 0 || r.ci95.high < 0);
+    }
+  });
+
+  it("is antisymmetric in the difference and symmetric in p", () => {
+    const a = { n: 6, mean: 3, stdDev: 1 };
+    const b = { n: 9, mean: 5, stdDev: 2 };
+    const ab = welchTTest(a, b)!;
+    const ba = welchTTest(b, a)!;
+    expect(ba.diff).toBe(-ab.diff);
+    expect(ba.pValue).toBeCloseTo(ab.pValue, 12);
+    expect(ba.ci95.low).toBeCloseTo(-ab.ci95.high, 10);
+  });
+
+  it("cannot be computed from fewer than 2 values on either side", () => {
+    expect(welchTTest({ n: 1, mean: 1, stdDev: null }, { n: 5, mean: 2, stdDev: 1 })).toBeNull();
+    expect(welchTTest({ n: 5, mean: 1, stdDev: 1 }, { n: 0, mean: null, stdDev: null })).toBeNull();
+  });
+
+  it("treats two constant samples as an exact comparison", () => {
+    expect(welchTTest({ n: 4, mean: 7, stdDev: 0 }, { n: 4, mean: 7, stdDev: 0 })!.pValue).toBe(1);
+    const r = welchTTest({ n: 4, mean: 7, stdDev: 0 }, { n: 4, mean: 8, stdDev: 0 })!;
+    expect(r.pValue).toBe(0);
+    expect(r.ci95).toEqual({ low: 1, high: 1 });
+  });
+
+  it("false-positive rate is close to alpha when both samples come from the same distribution", () => {
+    // deterministic LCG so the test never flakes
+    let seed = 12345;
+    const u = () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return (seed + 0.5) / 4294967296;
+    };
+    const sample = (n: number) => {
+      const xs = Array.from({ length: n }, () => -Math.log(u())); // exponential: skewed, like latencies
+      return summarize(xs);
+    };
+    let rejected = 0;
+    const trials = 2000;
+    for (let i = 0; i < trials; i++) {
+      const r = welchTTest(sample(10), sample(10))!;
+      if (r.pValue < 0.05) rejected++;
+    }
+    expect(rejected / trials).toBeGreaterThan(0.03);
+    expect(rejected / trials).toBeLessThan(0.07);
+  });
+});
+
+describe("adjustPValues (Benjamini-Hochberg)", () => {
+  it("matches a hand calculation", () => {
+    // sorted: 0.01, 0.02, 0.03, 0.04 with m = 4 -> 0.04, 0.04, 0.04, 0.04
+    expect(adjustPValues([0.04, 0.01, 0.03, 0.02])).toEqual([0.04, 0.04, 0.04, 0.04].map((v) => expect.closeTo(v, 12)));
+    // 0.001 * 3 / 1 = 0.003; 0.04 * 3 / 2 = 0.06; 0.5 * 3 / 3 = 0.5
+    const adj = adjustPValues([0.5, 0.001, 0.04]);
+    expect(adj[0]).toBeCloseTo(0.5, 12);
+    expect(adj[1]).toBeCloseTo(0.003, 12);
+    expect(adj[2]).toBeCloseTo(0.06, 12);
+  });
+
+  it("never lowers a p-value, never exceeds 1, and keeps the order of the raw values", () => {
+    const raw = [0.2, 0.9, 0.0004, 0.03, 0.5, 0.049, 1];
+    const adj = adjustPValues(raw) as number[];
+    raw.forEach((p, i) => {
+      expect(adj[i]).toBeGreaterThanOrEqual(p);
+      expect(adj[i]).toBeLessThanOrEqual(1);
+    });
+    const order = [...raw.keys()].sort((x, y) => (raw[x] as number) - (raw[y] as number));
+    for (let k = 1; k < order.length; k++) expect(adj[order[k] as number]).toBeGreaterThanOrEqual(adj[order[k - 1] as number] as number);
+  });
+
+  it("leaves untestable entries null and does not count them as tests", () => {
+    expect(adjustPValues([null, 0.01, null])).toEqual([null, 0.01, null]);
+    expect(adjustPValues([])).toEqual([]);
   });
 });
