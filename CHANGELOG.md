@@ -20,6 +20,10 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
   or below 5%. Comparisons with the same seeds will flag more real differences than before.
 
 ### Added
+- Empirical distributions: `{"dist": "empirical", "points": [[p, x], ...]}`, a piecewise-linear cumulative
+  distribution through measured points, for data no single family fits (such as fast cache hits plus slow misses).
+  `surgesim fit` suggests one when no family fits (`--family empirical` asks for it), and both SDKs have
+  `dist.empirical(...)`. On a 90/10 hit/miss mix the best family understated p99 by 59%; the empirical one is within 2%.
 - `surgesim mcp`: a Model Context Protocol server over stdio with `schema`, `validate`, `run` and `compare` tools, so
   AI agents can build, check, run and compare models without a shell. No new dependencies.
 - Bursty arrivals: `EntityGenerator` takes a `dispersionIndex` (default 1, Poisson). Above 1, arrivals come in
