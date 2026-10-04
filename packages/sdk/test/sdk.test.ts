@@ -190,6 +190,7 @@ describe("value helpers", () => {
     expect(dist.uniform(1, 2)).toEqual({ dist: "uniform", min: 1, max: 2 });
     expect(dist.normal(1, 2)).toEqual({ dist: "normal", mean: 1, stdDev: 2 });
     expect(dist.triangular(1, 2, 3)).toEqual({ dist: "triangular", min: 1, mode: 2, max: 3 });
+    expect(dist.empirical([[0, 1], [0.9, 2], [1, 5]])).toEqual({ dist: "empirical", points: [[0, 1], [0.9, 2], [1, 5]] });
     expect(poissonArrivals(4)).toEqual({ dist: "exponential", mean: 0.25 });
   });
 

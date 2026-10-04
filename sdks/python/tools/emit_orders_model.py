@@ -18,7 +18,7 @@ pool = m.worker_pool(
     "pool",
     concurrency=20,
     service_time=dist.lognormal(0.4, 0.2),
-    cold_start_time=dist.constant(1),
+    cold_start_time=dist.empirical([[0, 0.5], [0.8, 1], [1, 3]]),
     idle_timeout=minutes(1),
     failure_probability=0.05,
     queue=orders,

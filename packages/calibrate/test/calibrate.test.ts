@@ -6,7 +6,9 @@ import {
   Rng,
   TriangularSampler,
   UniformSampler,
+  createSampler,
   loadModel,
+  samplerMean,
   runModel,
   type ModelDefinition,
   type RunResults,
@@ -96,6 +98,33 @@ describe("fitSamples recovers known distributions", () => {
     const fit = fitSamples(values);
     expect(fit.best!.ks).toBeGreaterThan(fit.ksCritical * 1.5);
     expect(fit.warnings.join(" ")).toContain("No family fits well");
+    expect(fit.poorFit).toBe(true);
+  });
+
+  it("the empirical distribution reproduces a cache hit/miss mixture that no family can", () => {
+    // 90% hits around 50 ms, 10% misses around 800 ms
+    const hit = new LognormalSampler(rng("h"), 0.05, 0.02);
+    const miss = new LognormalSampler(rng("x"), 0.8, 0.3);
+    const pick = rng("p");
+    const values = draw(20_000, () => (pick.nextFloat() < 0.9 ? hit.nextSample() : miss.nextSample()));
+    const fit = fitSamples(values);
+    expect(fit.poorFit).toBe(true);
+    const points = (fit.empirical as { points: readonly (readonly [number, number])[] }).points;
+    expect(points[0]).toEqual([0, fit.min]);
+    expect(points[points.length - 1]).toEqual([1, fit.max]);
+    expect(points.map((pt) => pt[0])).toContain(0.9995); // 20,000 values leave 10 beyond it
+    expect(points.map((pt) => pt[0])).not.toContain(0.9999); // but only 2 beyond this one
+
+    const sorted = (s: { nextSample(): number }) => draw(100_000, () => s.nextSample()).sort((a, b) => a - b);
+    const p = (xs: number[], q: number) => xs[Math.floor(q * (xs.length - 1))] as number;
+    const fromEmpirical = sorted(createSampler(fit.empirical!, rng("e")));
+    for (const [q, real] of [[0.5, fit.p50], [0.95, fit.p95], [0.99, fit.p99]] as const) {
+      expect(Math.abs(p(fromEmpirical, q) / real - 1)).toBeLessThan(0.03);
+    }
+    expect(Math.abs(samplerMean(fit.empirical!) / fit.mean - 1)).toBeLessThan(0.01);
+    // The best family gets p99 badly wrong: this is the error the empirical distribution removes.
+    const fromBest = sorted(createSampler(fit.best!.spec, rng("b")));
+    expect(Math.abs(p(fromBest, 0.99) / fit.p99 - 1)).toBeGreaterThan(0.3);
   });
 
   it("negative values skip exponential and lognormal, with a warning", () => {
@@ -507,6 +536,7 @@ describe("sensitivity helpers", () => {
     expect(scaleSampler({ dist: "uniform", min: 1, max: 2 }, 2)).toEqual({ dist: "uniform", min: 2, max: 4 });
     expect(scaleSampler({ dist: "constant", value: 5 }, 2)).toEqual({ dist: "constant", value: 10 });
     expect(scaleSampler({ dist: "normal", mean: 5, stdDev: 1 }, 2)).toEqual({ dist: "normal", mean: 10, stdDev: 2 });
+    expect(scaleSampler({ dist: "empirical", points: [[0, 1], [0.9, 2], [1, 4]] }, 2)).toEqual({ dist: "empirical", points: [[0, 2], [0.9, 4], [1, 8]] });
   });
 
   it("scaleArrivals multiplies rate profiles and divides inter-arrival times, leaving the original untouched", () => {

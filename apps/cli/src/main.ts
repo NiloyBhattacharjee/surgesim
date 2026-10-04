@@ -58,7 +58,8 @@ Options:
   --label-a/--label-b (compare) Names for the two sides (default: the file names)
   --column NAME|N     (fit, fit-arrivals) The column to read, by header name or 0-based index (default: first numeric)
   --scale K           (fit, fit-arrivals) Multiply every value by K, for example 0.001 to turn milliseconds into seconds
-  --family F          (fit) Only try one family: exponential, lognormal, normal, uniform, triangular, constant
+  --family F          (fit) Only try one family: exponential, lognormal, normal, uniform, triangular, constant,
+                      or "empirical" for the measured distribution itself (suggested anyway when no family fits)
   --window S          (fit-arrivals) Counting window in seconds; --merge-tolerance F sets how alike windows must be to merge (0.15)
   --observed FILE     (calibrate) JSON of measured values; --tolerance F accepts that relative error (0.1 = 10%)
   --sensitivity P     (calibrate) Also show how results move when arrival rates and service times are off by P percent

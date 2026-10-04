@@ -13,6 +13,10 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
   or below 5%. Comparisons with the same seeds will flag more real differences than before.
 
 ### Added
+- An `empirical` distribution for any time input: `{"dist":"empirical","points":[[p,x],...]}`, a measured shape given
+  as cumulative probability and value pairs from `[0, min]` to `[1, max]`, interpolated linearly. `dist.empirical(...)`
+  in both SDKs. `surgesim fit` suggests one when no family fits (for example cache hits plus misses), and
+  `--family empirical` asks for it directly. On a hit/miss mixture it brings p99 from 59% too low to within 2%.
 - Comparison reports show the 95% confidence interval of the change, the adjusted p-value, which test was used, a
   per-replication strip plot for the biggest differences, and a table of every per-replication value.
 - Single-run reports list the per-replication value of every output.

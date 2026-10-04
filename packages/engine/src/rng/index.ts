@@ -6,6 +6,7 @@ export {
   NormalSampler,
   TriangularSampler,
   LognormalSampler,
+  EmpiricalSampler,
   createSampler,
   validateSamplerSpec,
   samplerMean,
