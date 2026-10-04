@@ -294,8 +294,6 @@ Not built yet:
   [docs/releasing.md](docs/releasing.md)).
 - Real-data calibration: the fitting and comparison tools have been exercised on synthetic data and on one small real
   program (two 10-minute runs), not on production traffic.
-- CI: the workflows exist (Node 20 and 22 on Linux, macOS and Windows; Python 3.9 to 3.13) but their macOS and Linux
-  cells only run on GitHub, so they had not been observed when this was written.
 - Importer: JSON templates only (no YAML), and only SQS, Lambda, ECS services, Application Auto Scaling target tracking
   and API Gateway throttling.
 - Components: no DynamoDB, SNS fan-out, load balancers, FIFO queues, batching, step scaling or multi-region.
