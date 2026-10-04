@@ -10,7 +10,8 @@ export type Distribution =
   | { dist: "exponential"; mean: number }
   | { dist: "normal"; mean: number; stdDev: number }
   | { dist: "triangular"; min: number; mode: number; max: number }
-  | { dist: "lognormal"; mean: number; stdDev: number };
+  | { dist: "lognormal"; mean: number; stdDev: number }
+  | { dist: "empirical"; points: [probability: number, value: number][] };
 
 /** A number of seconds (a constant) or a distribution of seconds. */
 export type Sampler = number | Distribution;
@@ -25,6 +26,14 @@ export const dist = {
   triangular: (min: number, mode: number, max: number): Distribution => ({ dist: "triangular", min, mode, max }),
   /** Lognormal parameterised by the mean and standard deviation of the variable itself (not its log). */
   lognormal: (mean: number, stdDev: number): Distribution => ({ dist: "lognormal", mean, stdDev }),
+  /**
+   * A measured distribution: `[cumulativeProbability, value]` points from `[0, min]` to `[1, max]`, interpolated
+   * linearly, e.g. `dist.empirical([[0, 0.01], [0.5, 0.05], [0.99, 1.2], [1, 2.5]])`. `surgesim fit` prints one.
+   */
+  empirical: (points: ReadonlyArray<readonly [probability: number, value: number]>): Distribution => ({
+    dist: "empirical",
+    points: points.map(([p, v]) => [p, v]),
+  }),
 };
 
 /** Readable units: each returns seconds, the format's only time unit. */

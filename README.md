@@ -215,7 +215,7 @@ Inside the engine, each layer depends only on those below it:
 | # | Layer | Contents |
 |---|---|---|
 | 1 | `kernel` | Integer-tick clock, binary-heap event queue ordered by (tick, priority, sequence), FIFO/LIFO, cancellable `EventHandle`s, `waitUntil` conditions evaluated only when time advances |
-| 2 | `rng` | Own xoshiro128** PRNG; independent streams from `(seed, streamId)`; constant/uniform/exponential/normal/triangular/lognormal behind `SampleProvider` |
+| 2 | `rng` | Own xoshiro128** PRNG; independent streams from `(seed, streamId)`; constant/uniform/exponential/normal/triangular/lognormal/empirical behind `SampleProvider` |
 | 3 | `schema` | Pure-data component schemas (inputs, links, outputs, unit categories including cost) and structured `ValidationError`s |
 | 4 | `model` | `Entity` → `StateEntity` → `LinkedComponent`; lightweight moving entities |
 | 5 | `components` | the components above, all callback state machines on `kernel.schedule` (no generators, coroutines or blocking waits) |

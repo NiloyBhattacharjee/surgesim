@@ -61,7 +61,7 @@ describe.skipIf(python === null)("Python SDK (cross-language)", () => {
     const pool = m.workerPool("pool", {
       concurrency: 20,
       serviceTime: dist.lognormal(0.4, 0.2),
-      coldStartTime: dist.constant(1),
+      coldStartTime: dist.empirical([[0, 0.5], [0.8, 1], [1, 3]]),
       idleTimeout: time.minutes(1),
       failureProbability: 0.05,
       queue: orders,

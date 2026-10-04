@@ -26,7 +26,10 @@ function num(v: number | null | undefined): string {
 
 /** Parameters of a fitted distribution as compact JSON with rounded numbers. */
 function specJson(spec: DistributionSpec): string {
-  return JSON.stringify(Object.fromEntries(Object.entries(spec).map(([k, v]) => [k, typeof v === "number" ? Number(v.toPrecision(4)) : v])));
+  const r = (v: number) => Number(v.toPrecision(4));
+  // Round empirical values only: rounding the probabilities could merge neighbouring points.
+  if (spec.dist === "empirical") return JSON.stringify({ dist: spec.dist, points: spec.points.map(([p, v]) => [p, r(v)]) });
+  return JSON.stringify(Object.fromEntries(Object.entries(spec).map(([k, v]) => [k, typeof v === "number" ? r(v) : v])));
 }
 
 function pad(cells: string[], widths: number[]): string {
@@ -57,9 +60,10 @@ export interface FitArgs {
 /** `surgesim fit <file>`: fit a distribution to measured durations. */
 export async function runFit(path: string, args: FitArgs, host: Host): Promise<number> {
   const { logger } = host;
-  const families: Family[] | undefined = args.family === undefined || args.family === "auto" ? undefined : [args.family as Family];
+  const empiricalOnly = args.family === "empirical";
+  const families: Family[] | undefined = args.family === undefined || args.family === "auto" || empiricalOnly ? undefined : [args.family as Family];
   if (families && !FAMILIES.includes(families[0] as Family)) {
-    logger.error(`error: --family must be auto or one of ${FAMILIES.join(", ")} (got "${args.family}")`);
+    logger.error(`error: --family must be auto, empirical or one of ${FAMILIES.join(", ")} (got "${args.family}")`);
     return EXIT_USAGE;
   }
   const text = await readText(path, host);
@@ -81,7 +85,7 @@ export async function runFit(path: string, args: FitArgs, host: Host): Promise<n
   );
   logger.info(`Summary (the unit after scaling, normally seconds): mean ${num(fit.mean)}, std dev ${num(fit.stdDev)}, CV ${num(fit.cv)}, min ${num(fit.min)}, max ${num(fit.max)}`);
   logger.info(`Percentiles: p50 ${num(fit.p50)}, p95 ${num(fit.p95)}, p99 ${num(fit.p99)}`);
-  if (fit.fits.length > 0) {
+  if (fit.fits.length > 0 && !empiricalOnly) {
     logger.info(`\nCandidate fits, best first. KS distance: smaller is better; about ${num(fit.ksCritical)} is the 5% critical value for this much data.`);
     const widths = [12, 9, 9, 60];
     logger.info(pad(["family", "KS", "p-value*", "parameters"], widths));
@@ -89,8 +93,13 @@ export async function runFit(path: string, args: FitArgs, host: Host): Promise<n
     logger.info("* approximate and optimistic, because the parameters were fitted to the same data.");
   }
   for (const w of fit.warnings) logger.warn(`warning: ${w}`);
-  if (fit.best === null) return EXIT_USAGE;
-  logger.info(`\nUse in a model (as a time input such as serviceTime):\n  ${specJson(fit.best.spec)}`);
+  const useEmpirical = empiricalOnly || fit.poorFit;
+  const chosen = useEmpirical ? fit.empirical : (fit.best?.spec ?? null);
+  if (chosen === null) return EXIT_USAGE;
+  logger.info(`\nUse in a model (as a time input such as serviceTime)${useEmpirical ? ", the measured distribution" : ""}:\n  ${specJson(chosen)}`);
+  if (fit.poorFit && !empiricalOnly && fit.best !== null) {
+    logger.info(`\nThe closest family, simpler but it misstates the tail:\n  ${specJson(fit.best.spec)}`);
+  }
   return EXIT_OK;
 }
 

@@ -508,6 +508,40 @@ describe("calibration workflow (synthetic monitoring export with a known ground 
     expect(out.indexOf("lognormal")).toBeLessThan(out.indexOf("normal  "));
   });
 
+  it("fit suggests the empirical distribution for a hit/miss mixture, and a model accepts it as printed", async () => {
+    // Every tenth request misses the cache (0.6-1 s); the rest hit (40-60 ms)
+    const ms = Array.from({ length: 3000 }, (_, i) => (i % 10 === 0 ? 600 + (400 * (i % 89)) / 89 : 40 + (20 * (i % 97)) / 97));
+    const h = harness({ "mixed.csv": `ms\n${ms.join("\n")}\n` });
+    expect(await h.call(["fit", "mixed.csv", "--scale", "0.001"])).toBe(EXIT_OK);
+    const out = h.stdout.join("\n");
+    const spec = JSON.parse(/the measured distribution:\n\s*(\{[^\n]*\})/.exec(out)![1]!) as { dist: string; points: [number, number][] };
+    expect(spec.dist).toBe("empirical");
+    expect(spec.points[0]![0]).toBe(0);
+    expect(spec.points.at(-1)).toEqual([1, 0.9955]); // the largest value, 995.5 ms
+    expect(out).toContain("The closest family, simpler but it misstates the tail");
+
+    const model = {
+      version: 1,
+      settings: { duration: 300, replications: 2, seed: 1 },
+      components: [
+        { type: "EntityGenerator", name: "gen", inputs: { interArrivalTime: { dist: "exponential", mean: 0.1 } }, links: { next: "q" } },
+        { type: "Queue", name: "q" },
+        { type: "Server", name: "s", inputs: { capacity: 4, serviceTime: spec }, links: { queue: "q", next: "sink" } },
+        { type: "EntitySink", name: "sink" },
+      ],
+    };
+    h.fs.files.set("m.json", JSON.stringify(model));
+    expect(await h.call(["run", "m.json"])).toBe(EXIT_OK);
+  });
+
+  it("fit --family empirical prints the measured distribution even when a family fits", async () => {
+    const h = harness(files());
+    expect(await h.call(["fit", "service.csv", "--scale", "0.001", "--family", "empirical"])).toBe(EXIT_OK);
+    const out = h.stdout.join("\n");
+    expect(out).not.toContain("Candidate fits");
+    expect(out).toMatch(/the measured distribution:\n\s*\{"dist":"empirical","points":\[\[0,/);
+  });
+
   it("fit-arrivals recovers the spike: three segments, breakpoints near 300 s and 600 s, rates near 8, 20, 8", async () => {
     const h = harness(files());
     expect(await h.call(["fit-arrivals", "arrivals.csv", "--window", "30"])).toBe(EXIT_OK);

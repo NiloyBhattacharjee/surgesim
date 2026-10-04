@@ -102,6 +102,24 @@ describe("distributions", () => {
     expect(mean(xs)).toBeCloseTo(0.5, 2);
     expect(Math.sqrt(variance(xs))).toBeCloseTo(0.25, 2);
   });
+  it("empirical reproduces its points and stays inside them", () => {
+    // Half the mass uniform on [0, 1], 40% on [1, 2], 10% on [2, 10]: mean 0.25 + 0.6 + 0.6 = 1.45
+    const spec = { dist: "empirical", points: [[0, 0], [0.5, 1], [0.9, 2], [1, 10]] } as const;
+    expect(samplerMean(spec)).toBeCloseTo(1.45, 12);
+    const xs = draw(spec, N);
+    expect(lo(xs)).toBeGreaterThanOrEqual(0);
+    expect(hi(xs)).toBeLessThanOrEqual(10);
+    expect(xs.filter((x) => x <= 1).length / N).toBeCloseTo(0.5, 2);
+    expect(xs.filter((x) => x <= 2).length / N).toBeCloseTo(0.9, 2);
+    expect(mean(xs)).toBeCloseTo(1.45, 1);
+  });
+  it("empirical with a repeated value has an atom there, and two points make a uniform", () => {
+    const atom = draw({ dist: "empirical", points: [[0, 3], [0.3, 3], [1, 4]] }, 10_000);
+    expect(atom.filter((x) => x === 3).length).toBeGreaterThan(2_800);
+    const u = draw({ dist: "empirical", points: [[0, 2], [1, 6]] }, N);
+    expect(mean(u)).toBeCloseTo(4, 1);
+    expect(variance(u)).toBeCloseTo(16 / 12, 1);
+  });
 });
 
 describe("validateSamplerSpec", () => {
@@ -118,5 +136,21 @@ describe("validateSamplerSpec", () => {
     expect(validateSamplerSpec({ dist: "triangular", min: 1, mode: 9, max: 3 })).not.toEqual([]);
     expect(validateSamplerSpec({ dist: "constant", value: 1, extra: 2 })).not.toEqual([]);
     expect(validateSamplerSpec(NaN)).not.toEqual([]);
+  });
+  it("reports problems with empirical points", () => {
+    const e = (points: unknown) => validateSamplerSpec({ dist: "empirical", points });
+    expect(e([[0, 1], [1, 2]])).toEqual([]);
+    expect(validateSamplerSpec({ dist: "empirical" })).not.toEqual([]);
+    expect(e("x")).toEqual(['empirical: "points" must be an array of at least 2 [probability, value] pairs']);
+    expect(e([[0, 1]])).not.toEqual([]);
+    expect(e([[0, 1], [1]])).toEqual(["empirical: point 1 must be a [probability, value] pair of finite numbers"]);
+    expect(e([[0, 1], [0.5, NaN], [1, 2]])).not.toEqual([]);
+    expect(e([[0, 1], [0.5, 2], [0.5, 3], [1, 4]])).toEqual(["empirical: point 2: probabilities must be strictly increasing"]);
+    expect(e([[0, 1], [0.5, 3], [1, 2]])).toEqual(["empirical: point 2: values must not decrease"]);
+    expect(e([[0.1, 1], [0.9, 2]])).toEqual([
+      "empirical: the first probability must be 0 (the minimum value)",
+      "empirical: the last probability must be 1 (the maximum value)",
+    ]);
+    expect(validateSamplerSpec({ dist: "empirical", points: [[0, 1], [1, 2]], mean: 1 })).toEqual(['empirical: unknown parameter "mean"']);
   });
 });

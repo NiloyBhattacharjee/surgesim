@@ -73,6 +73,21 @@ A `sampler` input accepts either a number (a constant) or a distribution object:
 | `{"dist":"normal","mean":m,"stdDev":s}` | `stdDev ≥ 0` (negative samples of times are clamped to 0) |
 | `{"dist":"triangular","min":a,"mode":c,"max":b}` | `min ≤ mode ≤ max` |
 | `{"dist":"lognormal","mean":m,"stdDev":s}` | `mean > 0`, `stdDev ≥ 0`; mean/stdDev are of the lognormal variable itself, not of its logarithm |
+| `{"dist":"empirical","points":[[p,x],...]}` | at least 2 `[cumulativeProbability, value]` pairs; probabilities strictly increasing from exactly `0` to exactly `1`; values never decreasing |
+
+**Empirical distributions** describe a measured shape directly, for data that no single family fits (for example fast
+cache hits plus slow misses). Each point says "a fraction `p` of values are at most `x`", so the first point is the
+minimum and the last is the maximum. Values between points are interpolated linearly (a piecewise-linear cumulative
+distribution, like JaamSim's `ContinuousDistribution`), and nothing below the first value or above the last is ever
+drawn. Repeating a value makes an atom: `[[0,3],[0.3,3],[1,4]]` returns exactly 3 with probability 0.3.
+Percentiles from a dashboard work as points, as long as you add the minimum and maximum:
+
+```json
+{ "dist": "empirical", "points": [[0, 0.008], [0.5, 0.049], [0.9, 0.32], [0.99, 1.21], [1, 2.49]] }
+```
+
+`surgesim fit` prints one with a point at every percentile and finer points in the tail. Because it cannot exceed the
+largest measured value, it understates the far tail when you have few samples.
 
 ## Component types (phase 1: generic components)
 

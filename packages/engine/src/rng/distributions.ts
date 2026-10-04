@@ -12,7 +12,8 @@ export type DistributionSpec =
   | { dist: "exponential"; mean: number }
   | { dist: "normal"; mean: number; stdDev: number }
   | { dist: "triangular"; min: number; mode: number; max: number }
-  | { dist: "lognormal"; mean: number; stdDev: number };
+  | { dist: "lognormal"; mean: number; stdDev: number }
+  | { dist: "empirical"; points: readonly (readonly [probability: number, value: number])[] };
 
 /** A plain number (constant) or a distribution description. */
 export type SamplerSpec = number | DistributionSpec;
@@ -25,9 +26,10 @@ export const DISTRIBUTION_NAMES = [
   "normal",
   "triangular",
   "lognormal",
+  "empirical",
 ] as const;
 
-/** Required numeric parameters of each distribution. */
+/** Required parameters of each distribution (all numbers, except empirical's list of points). */
 export const DISTRIBUTION_PARAMS: Record<(typeof DISTRIBUTION_NAMES)[number], readonly string[]> = {
   constant: ["value"],
   uniform: ["min", "max"],
@@ -35,6 +37,7 @@ export const DISTRIBUTION_PARAMS: Record<(typeof DISTRIBUTION_NAMES)[number], re
   normal: ["mean", "stdDev"],
   triangular: ["min", "mode", "max"],
   lognormal: ["mean", "stdDev"],
+  empirical: ["points"],
 };
 
 /** Always returns the same value. */
@@ -135,6 +138,60 @@ export class LognormalSampler implements SampleProvider {
   }
 }
 
+/**
+ * Inverse of a piecewise-linear cumulative distribution through measured (cumulative probability, value) points,
+ * like JaamSim's ContinuousDistribution. The first probability is 0 (the minimum) and the last is 1 (the maximum),
+ * so it never returns a value outside the measured range.
+ */
+export class EmpiricalSampler implements SampleProvider {
+  private readonly p: number[];
+  private readonly x: number[];
+  constructor(
+    private readonly rng: Rng,
+    points: readonly (readonly [number, number])[],
+  ) {
+    this.p = points.map((pt) => pt[0]);
+    this.x = points.map((pt) => pt[1]);
+  }
+  nextSample(): number {
+    const { p, x } = this;
+    const u = this.rng.nextFloat();
+    // Find p[lo] <= u < p[hi]; p[0] = 0 and p[last] = 1 bracket every u in [0, 1).
+    let lo = 0;
+    let hi = p.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if ((p[mid] as number) <= u) lo = mid;
+      else hi = mid;
+    }
+    const p0 = p[lo] as number;
+    const x0 = x[lo] as number;
+    return x0 + ((x[hi] as number) - x0) * ((u - p0) / ((p[hi] as number) - p0));
+  }
+}
+
+/** Problems with an empirical distribution's `points`; empty when valid. */
+function validatePoints(points: unknown): string[] {
+  if (!Array.isArray(points) || points.length < 2) {
+    return ['empirical: "points" must be an array of at least 2 [probability, value] pairs'];
+  }
+  for (let i = 0; i < points.length; i++) {
+    const pt: unknown = points[i];
+    if (!Array.isArray(pt) || pt.length !== 2 || !finite(pt[0]) || !finite(pt[1])) {
+      return [`empirical: point ${i} must be a [probability, value] pair of finite numbers`];
+    }
+    if (i > 0) {
+      const prev = points[i - 1] as [number, number];
+      if (!(pt[0] > prev[0])) return [`empirical: point ${i}: probabilities must be strictly increasing`];
+      if (pt[1] < prev[1]) return [`empirical: point ${i}: values must not decrease`];
+    }
+  }
+  const problems: string[] = [];
+  if ((points[0] as number[])[0] !== 0) problems.push("empirical: the first probability must be 0 (the minimum value)");
+  if ((points[points.length - 1] as number[])[0] !== 1) problems.push("empirical: the last probability must be 1 (the maximum value)");
+  return problems;
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -159,7 +216,7 @@ export function validateSamplerSpec(spec: unknown): string[] {
   const params = DISTRIBUTION_PARAMS[name as keyof typeof DISTRIBUTION_PARAMS];
   const problems: string[] = [];
   for (const key of params) {
-    if (!finite(spec[key])) problems.push(`${name}: "${key}" must be a finite number`);
+    if (name !== "empirical" && !finite(spec[key])) problems.push(`${name}: "${key}" must be a finite number`);
   }
   for (const key of Object.keys(spec)) {
     if (key !== "dist" && !params.includes(key)) problems.push(`${name}: unknown parameter "${key}"`);
@@ -186,6 +243,9 @@ export function validateSamplerSpec(spec: unknown): string[] {
       if (!(get("mean") > 0)) problems.push("lognormal: mean must be > 0");
       if (get("stdDev") < 0) problems.push("lognormal: stdDev must be >= 0");
       break;
+    case "empirical":
+      problems.push(...validatePoints(spec["points"]));
+      break;
   }
   return problems;
 }
@@ -204,6 +264,16 @@ export function samplerMean(spec: SamplerSpec): number {
       return spec.mean;
     case "triangular":
       return (spec.min + spec.mode + spec.max) / 3;
+    case "empirical": {
+      // Each segment is uniform between its two points, so it contributes its probability times its midpoint.
+      let m = 0;
+      for (let i = 1; i < spec.points.length; i++) {
+        const [p0, x0] = spec.points[i - 1] as readonly [number, number];
+        const [p1, x1] = spec.points[i] as readonly [number, number];
+        m += (p1 - p0) * (x0 + x1) / 2;
+      }
+      return m;
+    }
   }
 }
 
@@ -223,5 +293,7 @@ export function createSampler(spec: SamplerSpec, rng: Rng): SampleProvider {
       return new TriangularSampler(rng, spec.min, spec.mode, spec.max);
     case "lognormal":
       return new LognormalSampler(rng, spec.mean, spec.stdDev);
+    case "empirical":
+      return new EmpiricalSampler(rng, spec.points);
   }
 }

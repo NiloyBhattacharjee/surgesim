@@ -167,6 +167,7 @@ class Helpers(unittest.TestCase):
         self.assertEqual(dist.normal(1, 2), {"dist": "normal", "mean": 1, "stdDev": 2})
         self.assertEqual(dist.triangular(1, 2, 3), {"dist": "triangular", "min": 1, "mode": 2, "max": 3})
         self.assertEqual(dist.lognormal(0.5, 0.25), {"dist": "lognormal", "mean": 0.5, "stdDev": 0.25})
+        self.assertEqual(dist.empirical([(0, 1), (0.9, 2), (1, 5)]), {"dist": "empirical", "points": [[0, 1], [0.9, 2], [1, 5]]})
         self.assertEqual(poisson_arrivals(4), {"dist": "exponential", "mean": 0.25})
 
     def test_time_helpers_return_seconds(self):

@@ -33,6 +33,13 @@ export interface SampleFit {
   fits: FitResult[];
   /** The best fit, or null when there is too little data to say. */
   best: FitResult | null;
+  /**
+   * The measured distribution itself, as an `empirical` spec (every percentile, plus finer points in the tail where
+   * there is enough data to place them), or null with too little data. Use it when no family fits well.
+   */
+  empirical: DistributionSpec | null;
+  /** True when even the best family misses the data by a wide margin, so `empirical` is the better choice. */
+  poorFit: boolean;
   /** The KS distance below which the 5% critical value would not reject the fit (1.36 / sqrt(n)). */
   ksCritical: number;
   /** Things worth knowing: skipped families, a poor fit, too few samples. */
@@ -45,6 +52,15 @@ export interface FitOptions {
 }
 
 const MIN_SAMPLES = 8;
+
+/** Cumulative probabilities of the empirical points: every percentile, then finer steps in the tail. */
+const EMPIRICAL_PROBABILITIES = [
+  ...Array.from({ length: 100 }, (_, i) => i / 100),
+  0.991, 0.992, 0.993, 0.994, 0.995, 0.996, 0.997, 0.998, 0.999, 0.9995, 0.9999, 1,
+];
+
+/** A tail point is only placed when at least this many values lie beyond it; fewer would be guesswork. */
+const MIN_BEYOND = 10;
 
 /** The p-th percentile of sorted data by linear interpolation (the same definition the engine uses). */
 function percentile(sorted: readonly number[], p: number): number {
@@ -80,7 +96,7 @@ export function fitSamples(values: readonly number[], options: FitOptions = {}):
   const n = xs.length;
   const sorted = [...xs].sort((a, b) => a - b);
   if (n === 0) {
-    return { n, mean: NaN, stdDev: NaN, cv: NaN, min: NaN, max: NaN, p50: NaN, p95: NaN, p99: NaN, fits: [], best: null, ksCritical: NaN, warnings: [...warnings, "There are no usable values."] };
+    return { n, mean: NaN, stdDev: NaN, cv: NaN, min: NaN, max: NaN, p50: NaN, p95: NaN, p99: NaN, fits: [], best: null, empirical: null, poorFit: false, ksCritical: NaN, warnings: [...warnings, "There are no usable values."] };
   }
   const mean = xs.reduce((a, b) => a + b, 0) / n;
   const variance = n > 1 ? xs.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0;
@@ -99,6 +115,8 @@ export function fitSamples(values: readonly number[], options: FitOptions = {}):
     p99: percentile(sorted, 99),
     fits: [],
     best: null,
+    empirical: null,
+    poorFit: false,
     ksCritical: 1.36 / Math.sqrt(n),
     warnings,
   };
@@ -106,6 +124,10 @@ export function fitSamples(values: readonly number[], options: FitOptions = {}):
     warnings.push(`Only ${n} value(s): at least ${MIN_SAMPLES} are needed to compare distributions, and many more (hundreds) to trust the tail.`);
     return result;
   }
+  result.empirical = {
+    dist: "empirical",
+    points: EMPIRICAL_PROBABILITIES.filter((p) => p <= 0.99 || p === 1 || Math.round(n * (1 - p)) >= MIN_BEYOND).map((p) => [p, percentile(sorted, p * 100)] as const),
+  };
 
   const wanted = new Set(options.families ?? FAMILIES);
   const fits: FitResult[] = [];
@@ -148,9 +170,10 @@ export function fitSamples(values: readonly number[], options: FitOptions = {}):
   result.fits = fits;
   result.best = fits[0] ?? null;
   if (result.best && result.best.ks > result.ksCritical * 1.5) {
+    result.poorFit = true;
     warnings.push(
       `No family fits well (the best, ${result.best.family}, has KS distance ${result.best.ks.toFixed(3)} against a 5% critical value of about ${result.ksCritical.toFixed(3)}). ` +
-        "The data may be a mixture (for example fast cache hits plus slow misses). Fitting one distribution will misstate the tail.",
+        "The data may be a mixture (for example fast cache hits plus slow misses). Fitting one distribution will misstate the tail, so the empirical distribution is suggested instead.",
     );
   }
   if (result.best?.family === "normal" && mean < 3 * stdDev) {

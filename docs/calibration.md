@@ -68,6 +68,23 @@ It warns when nothing fits well (a mixture of fast and slow requests, for exampl
 misrepresent), when values are negative or zero (some families are skipped), and when there are too few samples. Use
 `--column NAME` or a 0-based index when the file has several columns.
 
+When nothing fits well, `fit` suggests the **empirical** distribution instead: the measured shape itself, as a point at
+every percentile plus finer points in the tail (down to 0.9999 when at least 10 values lie beyond a point). The closest
+family is still printed as a simpler fallback. `--family empirical` prints the empirical distribution even when a
+family fits.
+
+Why it matters: 20,000 service times with 90% cache hits (about 50 ms) and 10% misses (about 800 ms) fitted lognormal
+best, but that lognormal has a mean 25% too low and a p99 of 0.53 s against a measured 1.21 s. Fed to 10 workers at 80%
+utilisation, and checked against a separate simulation of the real mixture:
+
+| Service time input | Utilisation | Mean latency | p99 latency |
+|---|---|---|---|
+| The real mixture (ground truth) | 0.80 | 0.174 s | 1.30 s |
+| Best family (lognormal) | 0.60 | 0.097 s (−44%) | 0.53 s (−59%) |
+| Empirical | 0.81 | 0.189 s (+9%) | 1.32 s (+2%) |
+
+The lognormal model would pass a `p99 <= 1` gate that the real system fails.
+
 ### `surgesim fit-arrivals`
 
 Counts arrivals in windows and finds the best split into constant-rate segments with an optimal change-point search

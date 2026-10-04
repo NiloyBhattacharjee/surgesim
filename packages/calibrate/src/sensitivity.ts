@@ -10,6 +10,7 @@ export function scaleSampler(spec: unknown, factor: number): unknown {
   for (const key of ["value", "min", "mode", "max", "mean", "stdDev"]) {
     if (typeof s[key] === "number") s[key] = (s[key] as number) * factor;
   }
+  if (Array.isArray(s["points"])) s["points"] = (s["points"] as [number, number][]).map(([p, v]) => [p, v * factor]);
   return s;
 }
 

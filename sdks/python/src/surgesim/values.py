@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Dict, Union
+from typing import Dict, List, Sequence, Union
 
-Distribution = Dict[str, Union[str, float]]
+Distribution = Dict[str, Union[str, float, List[List[float]]]]
 
 
 class dist:  # noqa: N801 - lower-case on purpose: reads as ``dist.exponential(0.5)``
@@ -35,6 +35,12 @@ class dist:  # noqa: N801 - lower-case on purpose: reads as ``dist.exponential(0
     def lognormal(mean: float, std_dev: float) -> Distribution:
         """Parameterised by the mean and standard deviation of the variable itself, not of its log."""
         return {"dist": "lognormal", "mean": mean, "stdDev": std_dev}
+
+    @staticmethod
+    def empirical(points: Sequence[Sequence[float]]) -> Distribution:
+        """A measured distribution: ``[cumulative_probability, value]`` points from ``[0, min]`` to ``[1, max]``,
+        interpolated linearly. ``surgesim fit`` prints one."""
+        return {"dist": "empirical", "points": [[p, v] for p, v in points]}
 
 
 def ms(v: float) -> float:
