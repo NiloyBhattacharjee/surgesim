@@ -1,5 +1,5 @@
 import { Priority } from "../kernel/index.js";
-import { ExponentialSampler, type SampleProvider } from "../rng/index.js";
+import { ExponentialSampler, type Rng, type SampleProvider } from "../rng/index.js";
 import { LinkedComponent, type ComponentInit, type SimContext } from "../model/index.js";
 import { asRateProfile, asSampler, type ComponentSchema, type RateSegment } from "../schema/index.js";
 
@@ -12,6 +12,10 @@ import { asRateProfile, asSampler, type ComponentSchema, type RateSegment } from
  *   Generated exactly per segment (memorylessness of the exponential). The process starts at
  *   `firstArrivalTime`; before the first segment's start the rate is 0; the last segment
  *   continues forever.
+ * - `dispersionIndex` D > 1 makes either mode bursty: arrival events become (D + 1) / 2 times rarer and each one
+ *   releases a batch of simultaneous entities with a geometric size of mean (D + 1) / 2, so the average rate is
+ *   unchanged. For Poisson arrivals this is a compound Poisson process whose counts have variance / mean = D in any
+ *   window. D = 1 draws no batch sizes, so results are identical to a model without the input.
  */
 export class EntityGenerator extends LinkedComponent {
   static readonly schema: ComponentSchema<EntityGenerator> = {
@@ -24,6 +28,7 @@ export class EntityGenerator extends LinkedComponent {
       { key: "rateProfile", type: "rateProfile", unit: "rate", required: false, requiredWhen: { input: "mode", equals: "rateProfile" }, description: "Piecewise-constant Poisson rate: [[startSeconds, ratePerSecond], ...]. RateProfile mode." },
       { key: "firstArrivalTime", type: "sampler", unit: "time", min: 0, default: 0, required: false, description: "Time of the first arrival (interval mode) or start of the process (rateProfile mode), in seconds." },
       { key: "maxNumber", type: "integer", unit: "dimensionless", min: 0, required: false, description: "Stop after generating this many entities. Unlimited if omitted." },
+      { key: "dispersionIndex", type: "number", unit: "dimensionless", min: 1, default: 1, required: false, description: "How bursty arrivals are: variance / mean of arrival counts, as surgesim fit-arrivals measures it (1 = Poisson). Above 1, arrivals come in simultaneous batches of geometric size with mean (D + 1) / 2, at a lower batch rate, so the average rate is unchanged." },
     ],
     links: [{ key: "next", description: "Where generated entities are sent.", required: false, accepts: "receiver" }],
     outputs: [
@@ -37,6 +42,9 @@ export class EntityGenerator extends LinkedComponent {
   private readonly profile: RateSegment[];
   private readonly unitExp: SampleProvider;
   private readonly maxNumber: number | undefined;
+  /** Mean batch size, (D + 1) / 2; 1 without bursts. */
+  private readonly batchMean: number;
+  private readonly batchRng: Rng | null;
   private profileSeconds = 0;
   private generated = 0;
 
@@ -49,6 +57,14 @@ export class EntityGenerator extends LinkedComponent {
     this.profile = i["rateProfile"] !== undefined ? asRateProfile(i["rateProfile"]) : [];
     this.unitExp = new ExponentialSampler(ctx.rng(`${this.stream}/arrivals`), 1);
     this.maxNumber = i["maxNumber"] as number | undefined;
+    this.batchMean = ((i["dispersionIndex"] as number) + 1) / 2;
+    this.batchRng = this.batchMean > 1 ? ctx.rng(`${this.stream}/batches`) : null;
+  }
+
+  /** Geometric on 1, 2, ... with mean `batchMean` (always 1 without bursts). */
+  private batchSize(): number {
+    if (this.batchRng === null) return 1;
+    return 1 + Math.floor(Math.log(this.batchRng.nextFloatOpen()) / Math.log1p(-1 / this.batchMean));
   }
 
   override start(): void {
@@ -74,12 +90,14 @@ export class EntityGenerator extends LinkedComponent {
 
   private arrive(): void {
     this.setState("Generating");
-    this.generated++;
-    this.noteAdded();
-    this.sendToNext(this.ctx.createEntity());
-    if (this.maxNumber !== undefined && this.generated >= this.maxNumber) return this.finish();
+    for (let b = this.batchSize(); b > 0; b--) {
+      this.generated++;
+      this.noteAdded();
+      this.sendToNext(this.ctx.createEntity());
+      if (this.maxNumber !== undefined && this.generated >= this.maxNumber) return this.finish();
+    }
     if (this.mode === "interval") {
-      const gap = Math.max(0, (this.interArrival as SampleProvider).nextSample());
+      const gap = Math.max(0, (this.interArrival as SampleProvider).nextSample()) * this.batchMean;
       this.profileSeconds = this.ctx.kernel.currentSeconds + gap;
       this.scheduleAtSeconds(this.profileSeconds);
     } else {
@@ -115,7 +133,7 @@ export class EntityGenerator extends LinkedComponent {
         t = end;
         continue;
       }
-      const candidate = t + this.unitExp.nextSample() / rate;
+      const candidate = t + (this.unitExp.nextSample() * this.batchMean) / rate;
       if (candidate < end) return candidate;
       t = end;
     }

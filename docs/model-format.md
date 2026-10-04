@@ -86,8 +86,16 @@ A `sampler` input accepts either a number (a constant) or a distribution object:
 | `rateProfile` | `[[startSeconds, ratePerSecond], ...]` | required if `mode` is `rateProfile` | Piecewise-constant Poisson rate. Starts strictly increasing; before the first start the rate is 0; the last segment continues forever. |
 | `firstArrivalTime` | sampler (s) | `0` | Interval mode: time of the first arrival. RateProfile mode: when the process starts. |
 | `maxNumber` | integer ≥ 0 | unlimited | Stop after this many entities. |
+| `dispersionIndex` | number ≥ 1 | `1` | How bursty arrivals are: variance ÷ mean of arrival counts, as `surgesim fit-arrivals` prints it. `1` is Poisson. |
 
 Link: `next` (role `receiver`, optional). Outputs: `NumberGenerated`.
+
+**Bursty arrivals.** With `dispersionIndex` D above 1, arrival events become (D + 1) / 2 times rarer and each releases
+a batch of simultaneous entities whose size is geometric with mean (D + 1) / 2. The average rate stays what
+`rateProfile` or `interArrivalTime` says. For Poisson arrivals (any `rateProfile`, or an exponential
+`interArrivalTime`) this is a compound Poisson process: in any window, arrival counts have variance D times their mean.
+Real bursts are usually spread over a short time rather than simultaneous, so this is slightly pessimistic. A
+`maxNumber` limit can cut the last batch short.
 
 ### `Queue` — roles `receiver`, `queue`, `pullable`
 Input `maxLength` (integer ≥ 1, default unlimited): arrivals beyond it are dropped and counted.

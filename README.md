@@ -143,7 +143,7 @@ in TypeScript.
 
 | Component | Models |
 |---|---|
-| `EntityGenerator` | arrivals: fixed or random inter-arrival times, or a time-varying Poisson rate profile |
+| `EntityGenerator` | arrivals: fixed or random inter-arrival times, or a time-varying Poisson rate profile, optionally bursty (`dispersionIndex`) |
 | `Queue`, `Server`, `EntitySink` | FIFO queue with optional capacity, parallel workers, and the end of the line (latency percentiles) |
 | `MessageQueue` | SQS-style visibility timeout, redelivery, `maxReceiveCount`, dead-letter queue |
 | `WorkerPool` | concurrency limit, cold starts, idle reclaim, throttling, failures, per-second/per-request pricing |

@@ -6,7 +6,7 @@ engine's own schemas (``surgesim schema``) so this SDK cannot drift from the for
 
 SPECS = {
     "EntityGenerator": {
-        "inputs": ["mode", "interArrivalTime", "rateProfile", "firstArrivalTime", "maxNumber"],
+        "inputs": ["mode", "interArrivalTime", "rateProfile", "firstArrivalTime", "maxNumber", "dispersionIndex"],
         "links": ["next"],
         "outputs": ["NumberGenerated"],
     },

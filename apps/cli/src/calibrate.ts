@@ -127,10 +127,11 @@ export async function runFitArrivals(path: string, args: FitArrivalsArgs, host: 
   logger.info(`\nFitted rate profile (${fit.rateProfile.length} segment${fit.rateProfile.length === 1 ? "" : "s"}):`);
   logger.info(pad(["from (s)", "per second"], [10, 12]));
   for (const [start, rate] of fit.rateProfile) logger.info(pad([num(start), num(rate)], [10, 12]));
-  logger.info(`\nDispersion index ${num(fit.dispersionIndex)} (about 1 means Poisson-like arrivals, which is what the model assumes).`);
+  logger.info(`\nDispersion index ${num(fit.dispersionIndex)} (about 1 means Poisson-like arrivals; the generator's dispersionIndex input models more).`);
   for (const w of fit.warnings) logger.warn(`warning: ${w}`);
   const profile = JSON.stringify(fit.rateProfile.map(([s, r]) => [Number(s.toPrecision(6)), Number(r.toPrecision(4))]));
-  logger.info(`\nUse in an EntityGenerator:\n  "inputs": { "mode": "rateProfile", "rateProfile": ${profile} }`);
+  const bursts = fit.bursty ? `, "dispersionIndex": ${Number(fit.dispersionIndex.toPrecision(3))}` : "";
+  logger.info(`\nUse in an EntityGenerator:\n  "inputs": { "mode": "rateProfile", "rateProfile": ${profile}${bursts} }`);
   return EXIT_OK;
 }
 

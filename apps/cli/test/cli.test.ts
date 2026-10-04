@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { Rng } from "@surgesim/engine";
 import { Model, dist } from "@surgesim/sdk";
 import type { FileStore, Logger } from "@surgesim/platform";
 import { EXIT_ASSERTION_FAILED, EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE, parseAssertion, runCli } from "../src/main.js";
@@ -519,6 +520,28 @@ describe("calibration workflow (synthetic monitoring export with a known ground 
     expect(Math.abs(profile[1]![1] / 20 - 1)).toBeLessThan(0.05);
     expect(Math.abs(profile[2]![1] / 8 - 1)).toBeLessThan(0.05);
     expect(out).toContain("Dispersion index");
+    expect(out).not.toContain('"dispersionIndex"'); // Poisson-like traffic needs no burst setting
+  });
+
+  it("fit-arrivals adds dispersionIndex for bursty traffic, and the printed inputs run as they are", async () => {
+    // Clusters of 6 requests 10 ms apart, one cluster a second at random: about 6 times burstier than Poisson
+    const rng = new Rng(3, "clusters");
+    const ts: number[] = [];
+    for (let t = 0; t < 1800; t -= Math.log(rng.nextFloatOpen())) for (let k = 0; k < 6; k++) ts.push(t + k * 0.01);
+    const h = harness({ "bursty.csv": `t\n${ts.map((t) => t.toFixed(3)).join("\n")}\n` });
+    expect(await h.call(["fit-arrivals", "bursty.csv", "--window", "60"])).toBe(EXIT_OK);
+    const out = h.stdout.join("\n");
+    const inputs = JSON.parse(/"inputs": (\{.*\})/.exec(out)![1]!) as { dispersionIndex?: number };
+    expect(inputs.dispersionIndex).toBeGreaterThan(3);
+    h.fs.files.set("m.json", JSON.stringify({
+      version: 1,
+      settings: { duration: 120, replications: 2 },
+      components: [
+        { type: "EntityGenerator", name: "gen", inputs, links: { next: "sink" } },
+        { type: "EntitySink", name: "sink" },
+      ],
+    }));
+    expect(await h.call(["run", "m.json"])).toBe(EXIT_OK);
   });
 
   it("a model built from those fitted inputs is consistent with what the system measured (exit 0)", async () => {
