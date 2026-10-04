@@ -1,5 +1,9 @@
 # Surgesim
 
+[![CI](https://github.com/NiloyBhattacharjee/surgesim/actions/workflows/ci.yml/badge.svg)](https://github.com/NiloyBhattacharjee/surgesim/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@surgesim/cli?label=%40surgesim%2Fcli)](https://www.npmjs.com/package/@surgesim/cli)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 **Code-first discrete event simulation (DES) for cloud and distributed systems.** Describe request traffic,
 queues, worker pools, retries and autoscaling in JSON, TypeScript or Python (or import a CloudFormation/CDK
 template), run it with the `surgesim` CLI, and get a report with confidence intervals. It answers questions like:
@@ -299,6 +303,11 @@ Not built yet:
   richer unit system.
 - Comparison reports do not yet embed a diff of the two models themselves. "Differs" is a paired t-test (runs with
   the same seeds) or Welch's t-test (otherwise) on the per-replication values, with a Benjamini-Hochberg correction across outputs (see [docs/reports.md](docs/reports.md)).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up, the ground rules and the pull request checklist, and
+[CHANGELOG.md](CHANGELOG.md) for what changed in each release. Security issues: [SECURITY.md](SECURITY.md).
 
 ## License
 
