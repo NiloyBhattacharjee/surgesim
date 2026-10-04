@@ -89,6 +89,7 @@ surgesim fit <data.csv> [--column NAME] [--scale K]           fit a distribution
 surgesim fit-arrivals <timestamps.csv> --window S             fit an arrival rate profile from request timestamps
 surgesim calibrate <model> --observed observed.json           compare a model with what the real system measured
 surgesim schema                                               component schemas as JSON
+surgesim mcp                                                  serve the tools below to AI agents over MCP
 ```
 
 A `<model>` is a `.json` file, or a `.js`/`.ts` module whose default export is built with the SDK.
@@ -111,6 +112,21 @@ echo $?   # 3 if any threshold is violated
 
 Thresholds can also live in the model. `@ci95High` makes a gate conservative (the pessimistic end of the 95% interval
 must satisfy the limit), and an assertion on an undefined value fails rather than passing silently.
+
+### Using it from an AI agent (MCP)
+
+`surgesim mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio, so any MCP client (an
+AI coding assistant, a desktop chat app) can model systems without a shell. It has four tools: `schema` (the component
+types and their inputs), `validate` (structured errors), `run` (each output's mean and 95% confidence interval, and
+assertion results) and `compare` (which outputs differ, with the same test as `surgesim compare`). Models are passed as
+JSON or as a path to a `.json`, `.js` or `.ts` model. Register it with your client as the command
+`npx -y @surgesim/cli mcp`, for example in a JSON client config:
+
+```json
+{ "mcpServers": { "surgesim": { "command": "npx", "args": ["-y", "@surgesim/cli", "mcp"] } } }
+```
+
+From a checkout, use `node apps/cli/dist/bin.js mcp` after `pnpm build`.
 
 ### Writing models as code
 

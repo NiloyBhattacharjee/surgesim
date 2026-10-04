@@ -42,6 +42,7 @@ const USAGE = `Usage:
   surgesim calibrate <model> --observed observed.json       Compare a model with what the real system measured
   surgesim compile <model.ts|.js|.json> [--out model.json]   Build a model module to the JSON format
   surgesim schema            Print the component schemas as JSON
+  surgesim mcp               Serve schema, validate, run and compare as MCP tools over stdio (for AI agents)
 
 A <model> is a .json file, or a .js/.ts module whose default export is a model built with @surgesim/sdk.
 

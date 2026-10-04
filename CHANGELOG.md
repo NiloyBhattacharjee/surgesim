@@ -5,6 +5,8 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-05
+
 ### Changed
 - CLI errors are shorter: a usage error prints the error and a pointer to `surgesim --help` instead of the full help,
   an unknown command says so (it used to report `expected "surgesim run <model>"`), and a missing file reads
@@ -18,6 +20,8 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
   or below 5%. Comparisons with the same seeds will flag more real differences than before.
 
 ### Added
+- `surgesim mcp`: a Model Context Protocol server over stdio with `schema`, `validate`, `run` and `compare` tools, so
+  AI agents can build, check, run and compare models without a shell. No new dependencies.
 - Bursty arrivals: `EntityGenerator` takes a `dispersionIndex` (default 1, Poisson). Above 1, arrivals come in
   simultaneous batches of geometric size, so arrival counts have variance that many times their mean, at the same
   average rate. `dispersionIndex` / `dispersion_index` in both SDKs. `surgesim fit-arrivals` adds it to the inputs it
@@ -48,7 +52,8 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ### Added
 - First npm release. Tag-triggered, automated publishing with safety checks and a releasing guide.
 
-[Unreleased]: https://github.com/NiloyBhattacharjee/surgesim/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/NiloyBhattacharjee/surgesim/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/NiloyBhattacharjee/surgesim/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/NiloyBhattacharjee/surgesim/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/NiloyBhattacharjee/surgesim/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/NiloyBhattacharjee/surgesim/releases/tag/v0.1.1

@@ -7,6 +7,7 @@ npx @surgesim/cli run model.json --html report.html
 npx @surgesim/cli run model.json --assert "sink.p99<=2"     # exit code 3 if violated (use it in CI)
 npx @surgesim/cli compare before.json after.json --html diff.html
 npx @surgesim/cli import cdk.out/MyStack.template.json --out model.json
+npx @surgesim/cli mcp                                       # MCP server over stdio for AI agents
 ```
 
 Install globally with `npm install -g @surgesim/cli` to get the `surgesim` command. Requires Node 20+ (TypeScript model
