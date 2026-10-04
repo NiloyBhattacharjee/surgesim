@@ -142,7 +142,8 @@ class Model:
         return component
 
     def entity_generator(self, name: str, **props: Any) -> Component:
-        """Arrivals: a fixed or random inter-arrival time, or a piecewise-constant Poisson rate profile."""
+        """Arrivals: a fixed or random inter-arrival time, or a piecewise-constant Poisson rate profile.
+        ``dispersion_index`` above 1 (as ``surgesim fit-arrivals`` prints it) makes them bursty."""
         return self._make("EntityGenerator", name, props)
 
     def queue(self, name: str, **props: Any) -> Component:

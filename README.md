@@ -143,7 +143,7 @@ in TypeScript.
 
 | Component | Models |
 |---|---|
-| `EntityGenerator` | arrivals: fixed or random inter-arrival times, or a time-varying Poisson rate profile |
+| `EntityGenerator` | arrivals: fixed or random inter-arrival times, or a time-varying Poisson rate profile, optionally bursty (`dispersionIndex`) |
 | `Queue`, `Server`, `EntitySink` | FIFO queue with optional capacity, parallel workers, and the end of the line (latency percentiles) |
 | `MessageQueue` | SQS-style visibility timeout, redelivery, `maxReceiveCount`, dead-letter queue |
 | `WorkerPool` | concurrency limit, cold starts, idle reclaim, throttling, failures, per-second/per-request pricing |
@@ -186,7 +186,7 @@ apps/cli ──► engine ◄── report ◄── apps/demo (engine + report 
    └──► report, importer
 
 sdks/python                standalone; emits the same JSON
-validation/                an independent simulator (SimPy), the synthetic data generator, and a real test service
+validation/                an independent simulator (SimPy), the synthetic data generator, a real test service, and the bursty-arrivals check
 ```
 
 - **`@surgesim/engine`**: no DOM, no Node APIs, no runtime dependencies. Everything platform-specific sits behind

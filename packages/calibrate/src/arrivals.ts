@@ -18,11 +18,13 @@ export interface ArrivalFit {
   /** The raw per-window counts the profile was built from. */
   windows: ArrivalWindow[];
   /**
-   * How much short-interval counts vary around the fitted profile, relative to Poisson arrivals (which the model
-   * assumes). About 1 means Poisson-like. Well above 1 means bursty, and a Poisson model will understate queueing.
+   * How much short-interval counts vary around the fitted profile, relative to Poisson arrivals (the generator's
+   * default). About 1 means Poisson-like. Well above 1 means bursty: set the generator's `dispersionIndex` to it.
    * Measured around the fitted profile, so a rate change that the profile captures does not count as burstiness.
    */
   dispersionIndex: number;
+  /** True when the arrivals are clearly burstier than Poisson, so the model should set `dispersionIndex`. */
+  bursty: boolean;
   warnings: string[];
 }
 
@@ -293,12 +295,13 @@ export function fitArrivalProfile(timestamps: readonly number[], options: Arriva
   const dispersionIndex = dof > 0 ? chi / dof : NaN;
 
   if (count < 5) warnings.push(`Only ${count} counting window(s): use a smaller window or more data to see how the rate changes.`);
-  if (dof >= 8 && dispersionIndex > 1.5) {
-    warnings.push(`Arrivals are burstier than Poisson (dispersion index ${dispersionIndex.toFixed(2)}, 1 would be Poisson). A model with Poisson arrivals will understate waiting and tail latency.`);
+  const bursty = dof >= 8 && dispersionIndex > 1.5;
+  if (bursty) {
+    warnings.push(`Arrivals are burstier than Poisson (dispersion index ${dispersionIndex.toFixed(2)}, 1 would be Poisson). A model with Poisson arrivals will understate waiting and tail latency; set the generator's dispersionIndex to model the bursts.`);
   } else if (dof >= 8 && dispersionIndex < 0.5) {
     warnings.push(`Arrivals are more regular than Poisson (dispersion index ${dispersionIndex.toFixed(2)}), as with timer-driven traffic. Poisson arrivals will overstate queueing.`);
   }
   if (inside < ts.length) warnings.push(`${ts.length - inside} timestamp(s) fell outside the observation period and were ignored.`);
 
-  return { rateProfile, meanRate: inside / duration, duration, arrivals: inside, windows, dispersionIndex, warnings };
+  return { rateProfile, meanRate: inside / duration, duration, arrivals: inside, windows, dispersionIndex, bursty, warnings };
 }
