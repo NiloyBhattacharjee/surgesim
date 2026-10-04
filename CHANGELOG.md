@@ -5,6 +5,8 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-05
+
 ### Changed
 - CLI errors are shorter: a usage error prints the error and a pointer to `surgesim --help` instead of the full help,
   an unknown command says so (it used to report `expected "surgesim run <model>"`), and a missing file reads
@@ -50,7 +52,8 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ### Added
 - First npm release. Tag-triggered, automated publishing with safety checks and a releasing guide.
 
-[Unreleased]: https://github.com/NiloyBhattacharjee/surgesim/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/NiloyBhattacharjee/surgesim/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/NiloyBhattacharjee/surgesim/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/NiloyBhattacharjee/surgesim/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/NiloyBhattacharjee/surgesim/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/NiloyBhattacharjee/surgesim/releases/tag/v0.1.1
