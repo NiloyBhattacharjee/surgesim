@@ -28,7 +28,7 @@ export class EntityGenerator extends LinkedComponent {
       { key: "rateProfile", type: "rateProfile", unit: "rate", required: false, requiredWhen: { input: "mode", equals: "rateProfile" }, description: "Piecewise-constant Poisson rate: [[startSeconds, ratePerSecond], ...]. RateProfile mode." },
       { key: "firstArrivalTime", type: "sampler", unit: "time", min: 0, default: 0, required: false, description: "Time of the first arrival (interval mode) or start of the process (rateProfile mode), in seconds." },
       { key: "maxNumber", type: "integer", unit: "dimensionless", min: 0, required: false, description: "Stop after generating this many entities. Unlimited if omitted." },
-      { key: "dispersionIndex", type: "number", unit: "dimensionless", min: 1, default: 1, required: false, description: "How bursty arrivals are: variance / mean of arrival counts, as surgesim fit-arrivals measures it (1 = Poisson). Above 1, arrivals come in simultaneous batches of geometric size with mean (D + 1) / 2, at a lower batch rate, so the average rate is unchanged." },
+      { key: "dispersionIndex", type: "number", unit: "dimensionless", min: 1, max: 1000, default: 1, required: false, description: "How bursty arrivals are: variance / mean of arrival counts, as surgesim fit-arrivals measures it (1 = Poisson). Above 1, arrivals come in simultaneous batches of geometric size with mean (D + 1) / 2, at a lower batch rate, so the average rate is unchanged." },
     ],
     links: [{ key: "next", description: "Where generated entities are sent.", required: false, accepts: "receiver" }],
     outputs: [

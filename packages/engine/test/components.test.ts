@@ -119,10 +119,11 @@ describe("EntityGenerator", () => {
     }
   });
 
-  it("a batch stops at maxNumber, and dispersionIndex below 1 is rejected", () => {
+  it("a batch stops at maxNumber, and dispersionIndex outside 1 to 1000 is rejected", () => {
     const r = run(gen({ mode: "rateProfile", rateProfile: [[0, 5]], dispersionIndex: 50, maxNumber: 7 }));
     expect(out(r, "sink.count").mean).toBe(7);
     expect(() => load(gen({ interArrivalTime: 1, dispersionIndex: 0.5 }))).toThrow(/dispersionIndex/);
+    expect(() => load(gen({ interArrivalTime: 1, dispersionIndex: 1e9 }))).toThrow(/dispersionIndex/);
   });
 
   it("rateProfile produces nothing before the first segment starts", () => {

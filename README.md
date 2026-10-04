@@ -186,7 +186,7 @@ apps/cli ──► engine ◄── report ◄── apps/demo (engine + report 
    └──► report, importer
 
 sdks/python                standalone; emits the same JSON
-validation/                an independent simulator (SimPy), the synthetic data generator, and a real test service
+validation/                an independent simulator (SimPy), the synthetic data generator, a real test service, and the bursty-arrivals check
 ```
 
 - **`@surgesim/engine`**: no DOM, no Node APIs, no runtime dependencies. Everything platform-specific sits behind
