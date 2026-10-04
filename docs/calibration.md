@@ -101,11 +101,31 @@ from (s)    per second
 600.5       8.13
 ```
 
-It also reports a **dispersion index**: about 1 means Poisson-like arrivals, which is what the model assumes. A value well
-above 1 means bursty traffic, and a Poisson model will understate queueing and tail latency. It is measured on short
-bins around the fitted profile, so a rate change that the profile captures does not count as burstiness. The same
-burstiness is estimated, in a way a rate step cannot inflate, to widen the noise allowance, so bursts are not mistaken
-for rate changes.
+It also reports a **dispersion index**: about 1 means Poisson-like arrivals. A value well above 1 means bursty traffic,
+and a Poisson model will understate queueing and tail latency. When the index is above 1.5 and there are at least 8
+more short counting bins than profile segments (so the estimate is not noise), `fit-arrivals` warns and the printed
+inputs include `"dispersionIndex"`, which makes the generator release arrivals in batches with that same dispersion (see
+[docs/model-format.md](model-format.md#entitygenerator--role-source)).
+
+To check this, ground-truth traffic arrived in clusters of about 3 requests spread out with 50 ms gaps (not the
+engine's own batches), into 4 workers at 80% utilisation. `fit-arrivals` measured a dispersion index of 4.88 from one
+hour (theory: 5). Over 40 one-hour replications, with 95% confidence intervals:
+
+| Arrivals in the model | Mean latency | p99 latency |
+|---|---|---|
+| The clustered traffic (ground truth) | 0.960 s | 4.51 s ± 0.27 |
+| Poisson (`dispersionIndex` 1) | 0.435 s (−55%) | 1.74 s (−61%) |
+| `dispersionIndex` 4.88 | 0.974 s (+1%) | 4.22 s ± 0.18 (−6%) |
+
+The bursty model is within the noise of the ground truth; the Poisson model understates p99 by more than half. One
+hour's p99 under bursty load varies a lot, so use several replications before trusting a tail number. With one hour of
+data the measured index was within 12% of the true value in half the hours and within 24% in 90% of them.
+`node validation/bursty_arrivals.mjs` (after `pnpm build`) reproduces this, and also checks that the engine agrees with
+an independent ground truth when the clusters have no gaps, which is exactly what `dispersionIndex` models.
+
+The dispersion index is measured on short bins around the fitted profile, so a rate change that the profile captures
+does not count as burstiness. The same burstiness is estimated, in a way a rate step cannot inflate, to widen the noise
+allowance, so bursts are not mistaken for rate changes.
 
 > **A bug this caught (fixed).** Run on a real measured service (section 4), the first version reported Poisson traffic
 > at 8, then 11, then 8 requests per second as one segment with dispersion 5. It estimated the burstiness from the

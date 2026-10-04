@@ -73,6 +73,9 @@ Options:
   --name TEXT         (import) Model name
   -h, --help          Show this help`;
 
+const HINT = `Run "surgesim --help" for usage.`;
+const COMMANDS = ["run", "report", "compare", "import", "fit", "fit-arrivals", "calibrate", "compile", "schema"];
+
 const NUMBER = String.raw`-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?`;
 const OPS = [...ASSERTION_OPS].sort((a, b) => b.length - a.length).join("|");
 const ASSERT_EXPR = new RegExp(
@@ -136,7 +139,8 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
       },
     });
   } catch (e) {
-    logger.error(`error: ${(e as Error).message}\n\n${USAGE}`);
+    // Node appends advice about positionals that start with "-"; keep the first sentence.
+    logger.error(`error: ${(e as Error).message.split(". To specify")[0]}\n${HINT}`);
     return EXIT_USAGE;
   }
   const { values, positionals } = parsed;
@@ -147,6 +151,12 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
     return values.help ? EXIT_OK : EXIT_USAGE;
   }
 
+  if (!COMMANDS.includes(command)) {
+    logger.error(`error: unknown command "${command}" (expected one of: ${COMMANDS.join(", ")})
+${HINT}`);
+    return EXIT_USAGE;
+  }
+
   if (command === "schema") {
     logger.info(JSON.stringify(createDefaultRegistry().schemas().map(describeSchema), null, 2));
     return EXIT_OK;
@@ -155,8 +165,7 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
   if (command === "import") {
     if (modelPath === undefined || positionals.length > 2) {
       logger.error(`error: expected "surgesim import <template.json> [--out model.json]"
-
-${USAGE}`);
+${HINT}`);
       return EXIT_USAGE;
     }
     const num = (flag: string, raw: string | undefined, positive: boolean): number | undefined | "bad" => {
@@ -203,8 +212,7 @@ ${USAGE}`);
   if (command === "fit" || command === "fit-arrivals" || command === "calibrate") {
     if (modelPath === undefined || positionals.length > 2) {
       logger.error(`error: expected "surgesim ${command} <file>"
-
-${USAGE}`);
+${HINT}`);
       return EXIT_USAGE;
     }
     const positive = (flag: string, raw: string | undefined, dflt: number | undefined, allowZero = false): number | undefined | "bad" => {
@@ -250,8 +258,7 @@ ${USAGE}`);
   if (command === "report") {
     if (modelPath === undefined || positionals.length > 2) {
       logger.error(`error: expected "surgesim report <results.json|model> --html report.html"
-
-${USAGE}`);
+${HINT}`);
       return EXIT_USAGE;
     }
     return runReport(modelPath, { html: values.html, title: values.title }, host);
@@ -260,8 +267,7 @@ ${USAGE}`);
   if (command === "compare") {
     if (positionals.length !== 3) {
       logger.error(`error: expected "surgesim compare <a> <b> --html compare.html"
-
-${USAGE}`);
+${HINT}`);
       return EXIT_USAGE;
     }
     const cSeed = parseIntOption("seed", values.seed, 0);
@@ -288,7 +294,7 @@ ${USAGE}`);
 
   if (command === "compile") {
     if (modelPath === undefined || positionals.length > 2) {
-      logger.error(`error: expected "surgesim compile <model.ts|model.js|model.json> [--out model.json]"\n\n${USAGE}`);
+      logger.error(`error: expected "surgesim compile <model.ts|model.js|model.json> [--out model.json]"\n${HINT}`);
       return EXIT_USAGE;
     }
     const compiled = await loadModelSource(modelPath, host);
@@ -311,8 +317,8 @@ ${USAGE}`);
     return EXIT_OK;
   }
 
-  if (command !== "run" || modelPath === undefined || positionals.length > 2) {
-    logger.error(`error: expected "surgesim run <model>"\n\n${USAGE}`);
+  if (modelPath === undefined || positionals.length > 2) {
+    logger.error(`error: expected "surgesim run <model>"\n${HINT}`);
     return EXIT_USAGE;
   }
 

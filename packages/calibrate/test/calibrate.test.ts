@@ -3,6 +3,7 @@ import {
   ExponentialSampler,
   LognormalSampler,
   NormalSampler,
+  Simulation,
   Rng,
   TriangularSampler,
   UniformSampler,
@@ -268,6 +269,34 @@ describe("fitArrivalProfile", () => {
     // Bursts are noise on a steady rate, not rate changes: the profile must not be chopped into many segments.
     expect(fit.rateProfile.length).toBeLessThanOrEqual(3);
     expect(fit.warnings.join(" ")).toContain("burstier than Poisson");
+    expect(fit.bursty).toBe(true);
+  });
+
+  it("round trip: the dispersion index measured from the engine's bursty arrivals is the one the model was given", () => {
+    for (const [D, seed] of [[1, 1], [4, 2]] as const) {
+      const model = loadModel({
+        version: 1,
+        settings: { duration: 3600 },
+        components: [
+          { type: "EntityGenerator", name: "gen", inputs: { mode: "rateProfile", rateProfile: [[0, 10]], dispersionIndex: D }, links: { next: "sink" } },
+          { type: "EntitySink", name: "sink" },
+        ],
+      });
+      if (!model.ok) throw new Error("invalid");
+      // Arrival times to 0.1 s, read off the generator's running count
+      const sim = new Simulation(model.model, seed);
+      const arrivals: number[] = [];
+      let prev = 0;
+      for (let t = 0.1; t <= 3600; t += 0.1) {
+        sim.kernel.runUntil(sim.kernel.secondsToTicks(t));
+        const total = sim.readOutput("gen.NumberGenerated");
+        for (; prev < total; prev++) arrivals.push(t - 0.05);
+      }
+      const fit = fitArrivalProfile(arrivals, { windowSeconds: 60, start: 0, end: 3600 });
+      expect(fit.rateProfile, `D=${D}`).toHaveLength(1);
+      expect(Math.abs(fit.dispersionIndex / D - 1), `D=${D}: measured ${fit.dispersionIndex}`).toBeLessThan(0.2);
+      expect(fit.bursty).toBe(D > 1);
+    }
   });
 
   it("flags arrivals that are more regular than Poisson", () => {

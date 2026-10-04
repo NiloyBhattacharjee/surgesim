@@ -1,6 +1,6 @@
 import { runModel, type RunResults } from "@surgesim/engine";
 import type { Logger } from "@surgesim/platform";
-import { SIGNIFICANCE_LEVEL, computeDeltas, methodNote, renderComparison, renderReport } from "@surgesim/report";
+import { SIGNIFICANCE_LEVEL, computeDeltas, fmtP, methodNote, renderComparison, renderReport } from "@surgesim/report";
 import { EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE } from "./exit.js";
 import { loadModelSource, readModelSource, type SourceHost } from "./source.js";
 
@@ -98,11 +98,12 @@ export async function runCompare(
     .sort((x, y) => Math.abs(y.pct ?? 0) - Math.abs(x.pct ?? 0));
   const testable = deltas.filter((d) => d.significant !== null).length;
   logger.info(
-    `Compared ${labelA} with ${labelB}: ${deltas.length} shared outputs, ${differing.length} differ (${methodNote(deltas)}, adjusted p < ${SIGNIFICANCE_LEVEL}${testable < deltas.length ? `; ${deltas.length - testable} could not be tested, which needs 2+ replications` : ""}).`,
+    `Compared ${labelA} with ${labelB}: ${deltas.length} shared outputs, ${differing.length} differ${testable < deltas.length ? `, ${deltas.length - testable} could not be tested (needs 2+ replications)` : ""}.\n` +
+      `Test: ${methodNote(deltas)}, adjusted p < ${SIGNIFICANCE_LEVEL}.`,
   );
   for (const d of differing.slice(0, 10)) {
     const pct = d.pct === null ? "" : ` (${d.pct > 0 ? "+" : ""}${Number(d.pct.toPrecision(3))}%)`;
-    logger.info(`  ${d.id}: ${Number((d.a.mean as number).toPrecision(4))} -> ${Number((d.b.mean as number).toPrecision(4))}${pct}, p ${d.adjustedPValue === null ? "n/a" : d.adjustedPValue < 0.001 ? "<0.001" : Number(d.adjustedPValue.toPrecision(2))}`);
+    logger.info(`  ${d.id}: ${Number((d.a.mean as number).toPrecision(4))} -> ${Number((d.b.mean as number).toPrecision(4))}${pct}, p ${fmtP(d.adjustedPValue) || "n/a"}`);
   }
 
   if (options.html !== undefined) {

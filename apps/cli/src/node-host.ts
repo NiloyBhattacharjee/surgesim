@@ -5,8 +5,15 @@ import type { Clock, FileStore, Logger } from "@surgesim/platform";
 
 /** FileStore backed by the Node file system. */
 export class NodeFileStore implements FileStore {
-  readText(path: string): Promise<string> {
-    return readFile(path, "utf8");
+  async readText(path: string): Promise<string> {
+    try {
+      return await readFile(path, "utf8");
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") throw new Error("file not found");
+      if (code === "EISDIR") throw new Error("is a directory, not a file");
+      throw e;
+    }
   }
   async writeText(path: string, content: string): Promise<void> {
     await mkdir(dirname(path), { recursive: true });

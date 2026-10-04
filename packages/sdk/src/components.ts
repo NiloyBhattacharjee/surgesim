@@ -8,7 +8,7 @@ import type { RateProfile, Sampler } from "./values.js";
  */
 export const SPECS = {
   EntityGenerator: {
-    inputs: ["mode", "interArrivalTime", "rateProfile", "firstArrivalTime", "maxNumber"],
+    inputs: ["mode", "interArrivalTime", "rateProfile", "firstArrivalTime", "maxNumber", "dispersionIndex"],
     links: ["next"],
     outputs: ["NumberGenerated"],
   },
@@ -82,6 +82,8 @@ export interface EntityGeneratorProps extends Common {
   rateProfile?: RateProfile;
   firstArrivalTime?: Sampler;
   maxNumber?: number;
+  /** How bursty arrivals are (variance / mean of counts, as `surgesim fit-arrivals` prints it). Default 1: Poisson. */
+  dispersionIndex?: number;
   next?: Ref;
 }
 

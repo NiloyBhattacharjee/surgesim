@@ -89,6 +89,43 @@ describe("EntityGenerator", () => {
     expect(counts[2]).toBe(0);
   });
 
+  /** Variance / mean of arrival counts in consecutive 10 s bins of one long run, and the mean rate. */
+  const binDispersion = (inputs: object) => {
+    const sim = new Simulation(load(gen(inputs, 20_000)), 5);
+    const counts: number[] = [];
+    let prev = 0;
+    for (let t = 10; t <= 20_000; t += 10) {
+      sim.kernel.runUntil(sim.kernel.secondsToTicks(t));
+      const total = sim.readOutput("gen.NumberGenerated");
+      counts.push(total - prev);
+      prev = total;
+    }
+    const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
+    const variance = counts.reduce((a, b) => a + (b - mean) ** 2, 0) / (counts.length - 1);
+    return { index: variance / mean, rate: mean / 10 };
+  };
+
+  it("dispersionIndex makes counts overdispersed by exactly that factor, at the same average rate", () => {
+    // Compound Poisson with geometric batches of mean m: variance / mean = 2m - 1 = D in every window
+    for (const D of [1, 3, 7]) {
+      const profile = binDispersion({ mode: "rateProfile", rateProfile: [[0, 5]], dispersionIndex: D });
+      expect(profile.index, `rateProfile D=${D}`).toBeGreaterThan(D * 0.9);
+      expect(profile.index, `rateProfile D=${D}`).toBeLessThan(D * 1.1);
+      expect(Math.abs(profile.rate / 5 - 1), `rate D=${D}`).toBeLessThan(0.03);
+      const interval = binDispersion({ interArrivalTime: { dist: "exponential", mean: 0.2 }, dispersionIndex: D });
+      expect(interval.index, `interval D=${D}`).toBeGreaterThan(D * 0.9);
+      expect(interval.index, `interval D=${D}`).toBeLessThan(D * 1.1);
+      expect(Math.abs(interval.rate / 5 - 1), `rate D=${D}`).toBeLessThan(0.03);
+    }
+  });
+
+  it("a batch stops at maxNumber, and dispersionIndex outside 1 to 1000 is rejected", () => {
+    const r = run(gen({ mode: "rateProfile", rateProfile: [[0, 5]], dispersionIndex: 50, maxNumber: 7 }));
+    expect(out(r, "sink.count").mean).toBe(7);
+    expect(() => load(gen({ interArrivalTime: 1, dispersionIndex: 0.5 }))).toThrow(/dispersionIndex/);
+    expect(() => load(gen({ interArrivalTime: 1, dispersionIndex: 1e9 }))).toThrow(/dispersionIndex/);
+  });
+
   it("rateProfile produces nothing before the first segment starts", () => {
     const r = run(gen({ mode: "rateProfile", rateProfile: [[50, 100]] }, 50));
     expect(out(r, "sink.count").mean).toBe(0);
