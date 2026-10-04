@@ -278,13 +278,8 @@ function sameSeeds(a: RunResults, b: RunResults): boolean {
 
 /** The per-replication values of one output in replication order, or null if any is missing. */
 function completeValues(r: RunResults, id: string): number[] | null {
-  const out: number[] = [];
-  for (const x of r.replications) {
-    const v = x.outputs[id];
-    if (typeof v !== "number" || !Number.isFinite(v)) return null;
-    out.push(v);
-  }
-  return out;
+  const v = repValues(r, id);
+  return v.length === r.replications.length ? v : null;
 }
 
 /**
@@ -292,14 +287,9 @@ function completeValues(r: RunResults, id: string): number[] | null {
  * replication seeds they share random numbers, so the test is a paired t-test on the per-replication
  * differences, which cancels the noise the runs have in common. Otherwise it is Welch's t-test on the two
  * sets of values. Because a report compares many outputs at once, the p-values are adjusted
- * (Benjamini-Hochberg) before they are compared with `alpha` (default 0.05).
+ * (Benjamini-Hochberg) before they are compared with `SIGNIFICANCE_LEVEL`.
  */
-export function computeDeltas(
-  a: RunResults,
-  b: RunResults,
-  options: { alpha?: number } = {},
-): { deltas: Delta[]; onlyA: string[]; onlyB: string[] } {
-  const alpha = options.alpha ?? SIGNIFICANCE_LEVEL;
+export function computeDeltas(a: RunResults, b: RunResults): { deltas: Delta[]; onlyA: string[]; onlyB: string[] } {
   const bById = new Map(b.outputs.map((o) => [o.id, o]));
   const aIds = new Set(a.outputs.map((o) => o.id));
   const paired = sameSeeds(a, b);
@@ -336,14 +326,14 @@ export function computeDeltas(
   deltas.forEach((d, i) => {
     const q = adjusted[i] ?? null;
     d.adjustedPValue = q;
-    d.significant = q === null ? null : q < alpha;
+    d.significant = q === null ? null : q < SIGNIFICANCE_LEVEL;
   });
   const onlyB = b.outputs.filter((o) => !aIds.has(o.id)).map((o) => o.id);
   return { deltas, onlyA, onlyB };
 }
 
 /** A p-value for display: "<0.001" for tiny values, otherwise two significant digits. */
-function fmtP(p: number | null): string {
+export function fmtP(p: number | null): string {
   if (p === null) return "";
   return p < 0.001 ? "<0.001" : String(Number(p.toPrecision(2)));
 }

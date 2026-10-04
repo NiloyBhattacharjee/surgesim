@@ -91,8 +91,8 @@ describe("summarize", () => {
     const s = summarize([10, 12, 14, 16, 18]);
     expect(s.mean).toBe(14);
     expect(s.stdDev).toBeCloseTo(Math.sqrt(10), 12);
-    // t(0.975, df=4) = 2.7764; half width = 2.7764 * sqrt(10)/sqrt(5)
-    expect(s.ci95?.halfWidth).toBeCloseTo(2.7764 * Math.sqrt(2), 4);
+    // t(0.975, df=4) = 2.776445; half width = 2.776445 * sqrt(10)/sqrt(5)
+    expect(s.ci95?.halfWidth).toBeCloseTo(2.776445 * Math.sqrt(2), 5);
   });
   it("handles n = 0, 1 and non-finite values", () => {
     expect(summarize([]).mean).toBeNull();

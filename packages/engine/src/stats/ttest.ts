@@ -1,3 +1,5 @@
+import type { SampleSummary } from "./summary.js";
+
 /** ln Γ(x) for x > 0 (Lanczos approximation, g = 7; relative error below 1e-13). */
 function lnGamma(x: number): number {
   const c = [
@@ -81,11 +83,7 @@ export function tQuantile(p: number, df: number): number {
 }
 
 /** The numbers Welch's test needs from one sample (a `SampleSummary` or a results `OutputSummary` fits). */
-export interface SampleStats {
-  n: number;
-  mean: number | null;
-  stdDev: number | null;
-}
+export type SampleStats = Pick<SampleSummary, "n" | "mean" | "stdDev">;
 
 /** The outcome of a two-sample t-test (Welch's or paired). */
 export interface TTestResult {
@@ -101,8 +99,12 @@ export interface TTestResult {
   ci95: { low: number; high: number };
 }
 
-/** The outcome of comparing two samples with Welch's t-test. */
-export type WelchResult = TTestResult;
+/** The test result for difference `diff` with standard error `se`; `se` 0 means the difference is exact. */
+function tResult(diff: number, se: number, df: number): TTestResult {
+  if (se === 0) return { diff, t: diff === 0 ? 0 : diff > 0 ? Infinity : -Infinity, df, pValue: diff === 0 ? 1 : 0, ci95: { low: diff, high: diff } };
+  const half = tQuantile(0.975, df) * se;
+  return { diff, t: diff / se, df, pValue: tTwoSidedP(diff / se, df), ci95: { low: diff - half, high: diff + half } };
+}
 
 /**
  * Welch's two-sample t-test (unequal variances) for `b.mean - a.mean`, from per-sample summaries.
@@ -113,19 +115,14 @@ export type WelchResult = TTestResult;
  * different seeds. Runs that share a seed (common random numbers) are positively correlated, which makes
  * this test conservative (it reports larger p-values than a paired analysis would).
  */
-export function welchTTest(a: SampleStats, b: SampleStats): WelchResult | null {
+export function welchTTest(a: SampleStats, b: SampleStats): TTestResult | null {
   if (a.n < 2 || b.n < 2 || a.mean === null || b.mean === null || a.stdDev === null || b.stdDev === null) return null;
   const va = (a.stdDev * a.stdDev) / a.n;
   const vb = (b.stdDev * b.stdDev) / b.n;
   const se2 = va + vb;
   const diff = b.mean - a.mean;
-  if (!(se2 > 0)) {
-    return { diff, t: diff === 0 ? 0 : diff > 0 ? Infinity : -Infinity, df: a.n + b.n - 2, pValue: diff === 0 ? 1 : 0, ci95: { low: diff, high: diff } };
-  }
-  const se = Math.sqrt(se2);
-  const df = (se2 * se2) / ((va * va) / (a.n - 1) + (vb * vb) / (b.n - 1));
-  const half = tQuantile(0.975, df) * se;
-  return { diff, t: diff / se, df, pValue: tTwoSidedP(diff / se, df), ci95: { low: diff - half, high: diff + half } };
+  if (!(se2 > 0)) return tResult(diff, 0, a.n + b.n - 2);
+  return tResult(diff, Math.sqrt(se2), (se2 * se2) / ((va * va) / (a.n - 1) + (vb * vb) / (b.n - 1)));
 }
 
 /**
@@ -149,14 +146,9 @@ export function pairedTTest(a: readonly number[], b: readonly number[]): TTestRe
   }
   const mean = diffs.reduce((s, d) => s + d, 0) / n;
   const variance = diffs.reduce((s, d) => s + (d - mean) * (d - mean), 0) / (n - 1);
-  const df = n - 1;
   // Differences that are equal up to rounding are treated as constant.
-  if (!(Math.sqrt(variance) > 1e-12 * Math.max(1, Math.abs(mean)))) {
-    return { diff: mean, t: mean === 0 ? 0 : mean > 0 ? Infinity : -Infinity, df, pValue: mean === 0 ? 1 : 0, ci95: { low: mean, high: mean } };
-  }
-  const se = Math.sqrt(variance / n);
-  const half = tQuantile(0.975, df) * se;
-  return { diff: mean, t: mean / se, df, pValue: tTwoSidedP(mean / se, df), ci95: { low: mean - half, high: mean + half } };
+  const constant = !(Math.sqrt(variance) > 1e-12 * Math.max(1, Math.abs(mean)));
+  return tResult(mean, constant ? 0 : Math.sqrt(variance / n), n - 1);
 }
 
 /**
