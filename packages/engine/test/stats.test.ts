@@ -91,8 +91,8 @@ describe("summarize", () => {
     const s = summarize([10, 12, 14, 16, 18]);
     expect(s.mean).toBe(14);
     expect(s.stdDev).toBeCloseTo(Math.sqrt(10), 12);
-    // t(0.975, df=4) = 2.7764; half width = 2.7764 * sqrt(10)/sqrt(5)
-    expect(s.ci95?.halfWidth).toBeCloseTo(2.7764 * Math.sqrt(2), 4);
+    // t(0.975, df=4) = 2.776445; half width = 2.776445 * sqrt(10)/sqrt(5)
+    expect(s.ci95?.halfWidth).toBeCloseTo(2.776445 * Math.sqrt(2), 5);
   });
   it("handles n = 0, 1 and non-finite values", () => {
     expect(summarize([]).mean).toBeNull();
@@ -134,7 +134,10 @@ describe("Student t distribution", () => {
     }
     expect(tQuantile(0.975, 10)).toBeCloseTo(2.2281, 4);
     expect(tQuantile(0.025, 10)).toBeCloseTo(-2.2281, 4);
-    expect(tQuantile(0.975, 10)).toBeCloseTo(tQuantile975(10), 3);
+    // Published two-sided 95% critical values
+    for (const [df, t] of [[1, 12.7062], [2, 4.3027], [30, 2.0423], [120, 1.9799]] as const) {
+      expect(tQuantile975(df)).toBeCloseTo(t, 4);
+    }
   });
 
   it("handles degenerate inputs without throwing", () => {
@@ -158,6 +161,13 @@ describe("welchTTest", () => {
     // the 95% interval for the difference excludes zero exactly when p < 0.05
     expect(r!.ci95.low).toBeLessThan(0);
     expect(r!.ci95.high).toBeGreaterThan(4);
+  });
+
+  it("gives the same df at any scale, even when squared variances underflow", () => {
+    const df = welchTTest({ n: 10, mean: 20, stdDev: 5 }, { n: 12, mean: 24, stdDev: 6 })!.df;
+    const tiny = welchTTest({ n: 10, mean: 20e-100, stdDev: 5e-100 }, { n: 12, mean: 24e-100, stdDev: 6e-100 })!;
+    expect(tiny.df).toBeCloseTo(df, 10);
+    expect(tiny.pValue).toBeGreaterThan(0.1);
   });
 
   it("the interval excludes zero exactly when p < 0.05", () => {

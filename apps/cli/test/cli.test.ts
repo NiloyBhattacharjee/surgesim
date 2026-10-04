@@ -65,7 +65,10 @@ describe("example models run end to end", () => {
   it("traffic-spike shows the backlog growing during the spike and draining afterwards", async () => {
     const h = harness({ m: readFileSync(join(examplesDir, "traffic-spike.json"), "utf8") });
     expect(await h.call(["run", "m", "--replications", "1", "--json", "r"])).toBe(EXIT_OK);
-    const ts = JSON.parse(h.fs.files.get("r")!).timeSeries.replications[0];
+    const table = h.stdout.join("\n");
+    expect(table).toMatch(/QueueLength \(at end\)/);
+    expect(table).not.toMatch(/AverageQueueLength \(at end\)|MaxQueueLength \(at end\)/);
+    const ts =JSON.parse(h.fs.files.get("r")!).timeSeries.replications[0];
     const q: number[] = ts.values["queue.QueueLength"];
     const at = (s: number) => q[ts.times.indexOf(s)]!;
     expect(at(170)).toBeLessThan(50); // before the spike
@@ -104,7 +107,12 @@ describe("error handling", () => {
     expect(await h.call([])).toBe(EXIT_USAGE);
     expect(await h.call(["run", "broken.json", "--seed", "x"])).toBe(EXIT_USAGE);
     expect(await h.call(["run", "broken.json", "--bogus"])).toBe(EXIT_USAGE);
-    expect(h.stderr.join("\n")).toContain("not valid JSON");
+    expect(await h.call(["rnu", "broken.json"])).toBe(EXIT_USAGE);
+    const err = h.stderr.join("\n");
+    expect(err).toContain("not valid JSON");
+    expect(err).toContain('unknown command "rnu"');
+    expect(err).toContain("Unknown option '--bogus'");
+    expect(err).not.toContain("To specify a positional");
   });
 
   it("prints schemas as JSON", async () => {
@@ -322,6 +330,7 @@ describe("HTML reports and comparisons", () => {
     expect(await h.call(["compare", "a", "b", "--label-a", "3 workers", "--label-b", "1 worker", "--html", "out/cmp.html"])).toBe(EXIT_OK);
     const out = h.stdout.join("\n");
     expect(out).toContain("Compared 3 workers with 1 worker");
+    expect(out).toMatch(/\nTest: .*t-test.*, adjusted p < 0\.05\.\n/);
     expect(out).toMatch(/sink\.mean: [\d.]+ -> [\d.]+ \(\+[\d.]+%\)/);
     // The summary leads with the biggest relative change.
     const pcts = [...out.matchAll(/\(([+-][\d.e+]+)%\)/g)].map((m) => Math.abs(Number(m[1])));

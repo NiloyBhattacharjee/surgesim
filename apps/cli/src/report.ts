@@ -1,4 +1,4 @@
-import type { AssertionResult, OutputSummary, RunResults } from "@surgesim/engine";
+import { createDefaultRegistry, type AssertionResult, type OutputSummary, type RunResults } from "@surgesim/engine";
 
 function fmt(v: number | null): string {
   if (v === null) return "n/a";
@@ -11,9 +11,13 @@ function fmt(v: number | null): string {
 
 const UNIT_LABEL = { time: "s", rate: "/s", cost: "cost", dimensionless: "" } as const;
 
+/** "<type>.<key>" of current-value outputs (the time-series ones, e.g. QueueLength): their value is the one at the end of the run. */
+const AT_END = new Set(createDefaultRegistry().schemas().flatMap((c) => c.outputs.filter((o) => o.series).map((o) => `${c.type}.${o.key}`)));
+
 function row(o: OutputSummary): string[] {
   const ci = o.ci95 ? `[${fmt(o.ci95.low)}, ${fmt(o.ci95.high)}]` : "";
-  return [o.component, o.key, UNIT_LABEL[o.unit], fmt(o.mean), ci];
+  const key = AT_END.has(`${o.componentType}.${o.key}`) ? `${o.key} (at end)` : o.key;
+  return [o.component, key, UNIT_LABEL[o.unit], fmt(o.mean), ci];
 }
 
 function table(header: string[], rows: string[][]): string {
