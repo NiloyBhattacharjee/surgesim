@@ -6,6 +6,11 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ## [Unreleased]
 
 ### Changed
+- CLI errors are shorter: a usage error prints the error and a pointer to `surgesim --help` instead of the full help,
+  an unknown command says so (it used to report `expected "surgesim run <model>"`), and a missing file reads
+  `file not found` instead of Node's raw `ENOENT` message.
+- The `run` table labels current-value outputs such as `QueueLength` and `BusyWorkers` as `(at end)`, and the
+  `compare` summary puts the test it used on its own line.
 - `surgesim compare` now decides whether an output "differs" with a t-test on the per-replication values instead of
   checking whether the two 95% confidence intervals overlap. When both runs used the same replication seeds it runs a
   paired t-test, which cancels the noise the runs share; otherwise it runs Welch's t-test. p-values are adjusted across

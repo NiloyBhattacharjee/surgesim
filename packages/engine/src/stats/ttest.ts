@@ -122,7 +122,10 @@ export function welchTTest(a: SampleStats, b: SampleStats): TTestResult | null {
   const se2 = va + vb;
   const diff = b.mean - a.mean;
   if (!(se2 > 0)) return tResult(diff, 0, a.n + b.n - 2);
-  return tResult(diff, Math.sqrt(se2), (se2 * se2) / ((va * va) / (a.n - 1) + (vb * vb) / (b.n - 1)));
+  // Welch-Satterthwaite df, written with variance shares so tiny variances cannot underflow to 0/0.
+  const ra = va / se2;
+  const rb = vb / se2;
+  return tResult(diff, Math.sqrt(se2), 1 / ((ra * ra) / (a.n - 1) + (rb * rb) / (b.n - 1)));
 }
 
 /**

@@ -98,7 +98,8 @@ export async function runCompare(
     .sort((x, y) => Math.abs(y.pct ?? 0) - Math.abs(x.pct ?? 0));
   const testable = deltas.filter((d) => d.significant !== null).length;
   logger.info(
-    `Compared ${labelA} with ${labelB}: ${deltas.length} shared outputs, ${differing.length} differ (${methodNote(deltas)}, adjusted p < ${SIGNIFICANCE_LEVEL}${testable < deltas.length ? `; ${deltas.length - testable} could not be tested, which needs 2+ replications` : ""}).`,
+    `Compared ${labelA} with ${labelB}: ${deltas.length} shared outputs, ${differing.length} differ${testable < deltas.length ? `, ${deltas.length - testable} could not be tested (needs 2+ replications)` : ""}.\n` +
+      `Test: ${methodNote(deltas)}, adjusted p < ${SIGNIFICANCE_LEVEL}.`,
   );
   for (const d of differing.slice(0, 10)) {
     const pct = d.pct === null ? "" : ` (${d.pct > 0 ? "+" : ""}${Number(d.pct.toPrecision(3))}%)`;
