@@ -1,5 +1,8 @@
 # Browser demo
 
+The demo is hosted at **https://niloybhattacharjee.github.io/surgesim/** (rebuilt by `.github/workflows/pages.yml` on
+every push to `main`). To build it yourself:
+
 ```bash
 pnpm demo:build      # writes apps/demo/dist/index.html
 pnpm demo            # builds, then serves http://localhost:5173/
