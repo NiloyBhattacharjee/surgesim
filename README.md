@@ -13,6 +13,11 @@ template), run it with the `surgesim` CLI, and get a report with confidence inte
 Think CDK for capacity planning: models live in your repo, runs are deterministic and seeded, and capacity
 thresholds fail the build in CI.
 
+**[Try it in your browser](https://niloybhattacharjee.github.io/surgesim/?run=1&example=Traffic%20spike%3A%2050%2Fs%20to%20250%2Fs)**,
+no install: the engine runs in a Web Worker on the page and nothing leaves your machine.
+
+[![A Surgesim report: traffic spikes from 50/s to 250/s for 2 minutes, the queue backlog peaks near 6,100 and p99 latency reaches 30 s](docs/images/report.png)](examples/traffic-spike.json)
+
 | You want to... | Use |
 |---|---|
 | Run a model and read the numbers | `surgesim run model.json` |
@@ -22,7 +27,7 @@ thresholds fail the build in CI.
 | Write models as code | the [TypeScript SDK](docs/sdk.md) or the [Python SDK](sdks/python/README.md) |
 | Start from real infrastructure | `surgesim import cdk.out/Stack.template.json` ([docs](docs/importing.md)) |
 | Fit inputs from your real metrics and check the model against them | `surgesim fit`, `fit-arrivals`, `calibrate` ([docs](docs/calibration.md)) |
-| Try it without installing | the [browser demo](docs/browser-demo.md): the engine in a Web Worker, one HTML file |
+| Try it without installing | the [browser demo](https://niloybhattacharjee.github.io/surgesim/): the engine in a Web Worker, one HTML file ([docs](docs/browser-demo.md)) |
 
 ## Where this is useful
 
