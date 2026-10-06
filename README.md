@@ -131,6 +131,11 @@ JSON or as a path to a `.json`, `.js` or `.ts` model. Register it with your clie
 { "mcpServers": { "surgesim": { "command": "npx", "args": ["-y", "@surgesim/cli", "mcp"] } } }
 ```
 
+In Claude Code: `claude mcp add surgesim -- npx -y @surgesim/cli mcp`. On Windows, wrap `npx` in `cmd /c` (in the
+JSON config, `"command": "cmd", "args": ["/c", "npx", "-y", "@surgesim/cli", "mcp"]`), and from PowerShell call
+`claude.cmd` instead of `claude`, which otherwise drops the `--`:
+`claude.cmd mcp add surgesim -- cmd /c npx -y @surgesim/cli mcp`.
+
 From a checkout, use `node apps/cli/dist/bin.js mcp` after `pnpm build`.
 
 ### Writing models as code
