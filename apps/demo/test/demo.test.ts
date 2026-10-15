@@ -6,6 +6,7 @@ import vm from "node:vm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error build.mjs is plain JavaScript (no declarations); it is the same script `pnpm build` runs
 import { buildDemo } from "../build.mjs";
+import { loadModel, runModel } from "@surgesim/engine";
 import { handleRun, type RunResponse } from "../src/handler.js";
 
 const exampleJson = async (file: string): Promise<unknown> =>
@@ -33,6 +34,26 @@ describe("handleRun (the worker's logic)", () => {
 
   it("returns an error (not an exception) for non-model input", () => {
     for (const json of [null, 5, "x", []]) expect(handleRun({ json }).ok).toBe(false);
+  });
+
+  it("the replay follows replication 1 of the reported run and samples every current-value output", async () => {
+    const json = await exampleJson("two-stage-pipeline.json");
+    const r = handleRun({ json, replications: 2 });
+    if (!r.ok) throw new Error("model should run");
+    const loaded = loadModel(json);
+    if (!loaded.ok) throw new Error("model should load");
+    const reported = runModel(loaded.model, { replications: 2 }).timeSeries!.replications[0]!;
+    const { playback } = r;
+    expect(Object.keys(playback.values).sort()).toEqual(["enrich.BusyWorkers", "enrich_queue.QueueLength", "parse.BusyWorkers", "parse_queue.QueueLength"]);
+    // Compare where both sample (the report every 10 s, the replay every 4.5 s): the same trajectory.
+    let compared = 0;
+    reported.times.forEach((time, i) => {
+      const j = playback.times.findIndex((x) => Math.abs(x - time) < 1e-9);
+      if (j < 0) return;
+      compared++;
+      expect(playback.values["enrich_queue.QueueLength"]![j]).toBe(reported.values["enrich_queue.QueueLength"]![i]);
+    });
+    expect(compared).toBeGreaterThanOrEqual(10);
   });
 
   it("seed and replications overrides take effect", async () => {

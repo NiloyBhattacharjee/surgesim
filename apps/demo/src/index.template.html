@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Surgesim demo</title>
 <style>
-:root { color-scheme: light dark; --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --border:rgba(11,11,11,.12); --accent:#2a78d6; --accent-ink:#fff; --bad:#d03b3b; }
-@media (prefers-color-scheme: dark) { :root { --page:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink2:#c3c2b7; --border:rgba(255,255,255,.12); --accent:#3987e5; --bad:#e66767; } }
+:root { color-scheme: light dark; --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --border:rgba(11,11,11,.12); --accent:#2a78d6; --accent-ink:#fff; --bad:#d03b3b; --ok:#2f8a5f; --k-source:#2f8a5f; --k-queue:#c47a12; --k-worker:#2a78d6; --k-control:#7d55c7; --k-sink:#6b6a66; }
+@media (prefers-color-scheme: dark) { :root { --page:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink2:#c3c2b7; --border:rgba(255,255,255,.12); --accent:#3987e5; --bad:#e66767; --ok:#4cb784; --k-source:#4cb784; --k-queue:#e0a040; --k-worker:#3987e5; --k-control:#a283e0; --k-sink:#9a9992; } }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
 header { padding: 20px 16px 8px; max-width: 1400px; margin: 0 auto; }
@@ -26,12 +26,78 @@ iframe { flex: 1; width: 100%; border: 0; border-radius: 8px; background: transp
 #errors { color: var(--bad); margin: 8px 0 0; padding-left: 20px; font-size: 13px; }
 a#download { margin-left: auto; font-size: 13px; color: var(--accent); }
 label { color: var(--ink2); font-size: 13px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.tabs button { cursor: pointer; }
+.tabs button[aria-selected=true] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+#diagram { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+#diagram[hidden], textarea[hidden] { display: none; }
+.layout:has(#diagram:not([hidden])) { grid-template-columns: 1fr 1fr; }
+@media (max-width: 900px) { .layout:has(#diagram:not([hidden])) { grid-template-columns: 1fr; } }
+.palette { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12.5px; padding: 4px 10px 4px 8px; cursor: grab; display: inline-flex; align-items: center; gap: 6px; }
+.chip:hover { border-color: var(--k); }
+.chip:active { cursor: grabbing; }
+.kind-source { --k: var(--k-source); } .kind-queue { --k: var(--k-queue); } .kind-worker { --k: var(--k-worker); } .kind-control { --k: var(--k-control); } .kind-sink { --k: var(--k-sink); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--k); }
+.toolbar { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.toolbar button { margin-left: auto; font-size: 12.5px; padding: 3px 10px; cursor: pointer; }
+.check { cursor: help; font-weight: 600; }
+.check.ok { color: var(--ok); } .check.bad { color: var(--bad); }
+.canvas { position: relative; flex: 1; min-height: 440px; overflow: auto; background: var(--page) radial-gradient(circle, var(--border) 1px, transparent 1.2px) 0 0 / 16px 16px; border: 1px solid var(--border); border-radius: 8px; }
+.canvas svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.canvas path { fill: none; stroke: var(--ink2); stroke-width: 1.5; }
+.canvas marker path { fill: var(--ink2); stroke: none; }
+.canvas path.pull { stroke-dasharray: 4 3; }
+.canvas path.pending { stroke: var(--accent); stroke-width: 2; }
+.node { position: absolute; width: 150px; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--k); border-radius: 8px; padding: 6px 8px; cursor: grab; user-select: none; touch-action: none; font-size: 12.5px; box-shadow: 0 1px 2px rgba(0,0,0,.08); transition: opacity .12s, box-shadow .12s; }
+.node:hover { box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.node:active { cursor: grabbing; }
+.node.selected { border-color: var(--accent); border-left-color: var(--k); box-shadow: 0 0 0 2px var(--accent); }
+.node.bad { border-color: var(--bad); border-left-color: var(--k); }
+.node .badge { position: absolute; top: -8px; right: -8px; width: 18px; height: 18px; border-radius: 50%; background: var(--bad); color: #fff; font: 700 12px/18px system-ui, sans-serif; text-align: center; }
+.node .type { color: var(--k); font-size: 11px; font-weight: 600; }
+.node .name { font-weight: 600; margin-bottom: 2px; overflow-wrap: anywhere; }
+.linking .node.no-drop { opacity: .35; }
+.linking .node.can-drop { box-shadow: 0 0 0 2px var(--ok); }
+.linking .node.can-drop.hover { box-shadow: 0 0 0 4px var(--ok); }
+.port-row { display: flex; justify-content: flex-end; align-items: center; gap: 6px; color: var(--ink2); font-size: 11.5px; }
+.port-row.bad { color: var(--bad); }
+.port { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--k); background: var(--surface); cursor: crosshair; touch-action: none; margin-right: -15px; transition: transform .1s; }
+.port:hover { transform: scale(1.4); }
+.port.on { background: var(--k); }
+.port-row.bad .port { border-color: var(--bad); }
+.player { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink2); }
+.player[hidden] { display: none; }
+.player button { width: 2.4em; padding: 3px 0; cursor: pointer; }
+.player input[type=range] { flex: 1; min-width: 80px; padding: 0; border: 0; accent-color: var(--accent); }
+.player select { font-size: 12px; padding: 2px 6px; }
+.clock { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gauge { margin: 2px 0 4px; font-size: 11px; color: var(--ink2); }
+.gauge .gh { display: flex; justify-content: space-between; gap: 6px; }
+.gauge .gv { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.gauge .track { display: block; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.gauge i { display: block; height: 100%; width: 0; background: var(--k); }
+.gauge.hot i { background: var(--bad); }
+.gauge.hot .gv { color: var(--bad); }
+.canvas.playing path:not(.pending) { stroke-dasharray: 5 5; animation: flow .7s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -10; } }
+@media (prefers-reduced-motion: reduce) { .canvas.playing path { animation: none; } }
+.hint.empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 0 15%; margin: 0; font-size: 14px; }
+.type-id { color: var(--ink2); font-weight: 400; font-size: 12px; }
+.hint { color: var(--ink2); font-size: 13px; margin: 8px; }
+.inspector { max-height: 40vh; overflow: auto; }
+.inspector .hint { margin: 4px 0 8px; }
+.inspector-head { display: flex; justify-content: space-between; align-items: center; }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px 10px; }
+.fields label { display: flex; flex-direction: column; gap: 2px; }
+.fields input, .fields select { width: 100%; padding: 4px 8px; }
+[aria-invalid=true] { border-color: var(--bad); }
 </style>
 </head>
 <body>
 <header>
   <h1>Surgesim in your browser</h1>
-  <p>The same engine that runs in Node, simulating in a Web Worker on this page. Edit the model and run it; nothing leaves your machine.</p>
+  <p>The same engine that runs in Node, simulating in a Web Worker on this page. Drag components onto the diagram or edit the JSON, then run it; nothing leaves your machine.</p>
 </header>
 <div class="layout">
   <section class="panel">
@@ -40,6 +106,8 @@ label { color: var(--ink2); font-size: 13px; }
       <label>replications <input id="reps" type="number" min="1" max="50" value="3"></label>
       <button id="run" class="primary">Run</button>
     </div>
+    <div class="tabs" role="tablist"><button id="tab-diagram" role="tab">Diagram</button><button id="tab-json" role="tab">JSON</button></div>
+    <div id="diagram"></div>
     <textarea id="model" spellcheck="false" aria-label="Model JSON"></textarea>
     <ul id="errors" hidden></ul>
   </section>
