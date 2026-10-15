@@ -26,12 +26,39 @@ iframe { flex: 1; width: 100%; border: 0; border-radius: 8px; background: transp
 #errors { color: var(--bad); margin: 8px 0 0; padding-left: 20px; font-size: 13px; }
 a#download { margin-left: auto; font-size: 13px; color: var(--accent); }
 label { color: var(--ink2); font-size: 13px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.tabs button { cursor: pointer; }
+.tabs button[aria-selected=true] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+#diagram { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+#diagram[hidden], textarea[hidden] { display: none; }
+.palette { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12.5px; padding: 3px 8px; cursor: grab; }
+.canvas { position: relative; flex: 1; min-height: 360px; overflow: auto; background: var(--page); border: 1px solid var(--border); border-radius: 8px; }
+.canvas svg { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.canvas path { fill: none; stroke: var(--ink2); stroke-width: 1.5; }
+.canvas path.pull { stroke-dasharray: 4 3; }
+.canvas path.pending { stroke: var(--accent); }
+.node { position: absolute; width: 150px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; cursor: move; user-select: none; touch-action: none; font-size: 12.5px; }
+.node.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.node .type { color: var(--ink2); font-size: 11px; }
+.node .name { font-weight: 600; margin-bottom: 2px; overflow-wrap: anywhere; }
+.port-row { display: flex; justify-content: flex-end; align-items: center; gap: 6px; color: var(--ink2); font-size: 11.5px; }
+.port { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--accent); background: var(--surface); cursor: crosshair; touch-action: none; margin-right: -14px; }
+.port.on { background: var(--accent); }
+.hint { color: var(--ink2); font-size: 13px; margin: 8px; }
+.inspector { max-height: 40vh; overflow: auto; }
+.inspector .hint { margin: 4px 0 8px; }
+.inspector-head { display: flex; justify-content: space-between; align-items: center; }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px 10px; }
+.fields label { display: flex; flex-direction: column; gap: 2px; }
+.fields input, .fields select { width: 100%; padding: 4px 8px; }
+[aria-invalid=true] { border-color: var(--bad); }
 </style>
 </head>
 <body>
 <header>
   <h1>Surgesim in your browser</h1>
-  <p>The same engine that runs in Node, simulating in a Web Worker on this page. Edit the model and run it; nothing leaves your machine.</p>
+  <p>The same engine that runs in Node, simulating in a Web Worker on this page. Drag components onto the diagram or edit the JSON, then run it; nothing leaves your machine.</p>
 </header>
 <div class="layout">
   <section class="panel">
@@ -40,6 +67,8 @@ label { color: var(--ink2); font-size: 13px; }
       <label>replications <input id="reps" type="number" min="1" max="50" value="3"></label>
       <button id="run" class="primary">Run</button>
     </div>
+    <div class="tabs" role="tablist"><button id="tab-diagram" role="tab">Diagram</button><button id="tab-json" role="tab">JSON</button></div>
+    <div id="diagram"></div>
     <textarea id="model" spellcheck="false" aria-label="Model JSON"></textarea>
     <ul id="errors" hidden></ul>
   </section>

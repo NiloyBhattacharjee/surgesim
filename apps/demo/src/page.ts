@@ -1,3 +1,4 @@
+import { mountDiagram } from "./diagram.js";
 import type { RunRequest, RunResponse } from "./handler.js";
 import mm1 from "../../../examples/mm1.json" with { type: "json" };
 import spike from "../../../examples/traffic-spike.json" with { type: "json" };
@@ -16,6 +17,7 @@ const EXAMPLES: Record<string, unknown> = {
   "Serverless cold starts and throttling": coldStart,
   "Retry storm": retryStorm,
   "M/M/1 queue (theory check)": mm1,
+  "Blank (build your own)": { version: 1, name: "My model", settings: { duration: 600, warmUp: 60, replications: 3 }, components: [] },
 };
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -27,6 +29,15 @@ const status = $<HTMLElement>("status");
 const frame = $<HTMLIFrameElement>("report");
 const errors = $<HTMLElement>("errors");
 const download = $<HTMLAnchorElement>("download");
+const diagram = mountDiagram($("diagram"), editor);
+const tabs = [$<HTMLButtonElement>("tab-diagram"), $<HTMLButtonElement>("tab-json")];
+
+function show(view: "diagram" | "json"): void {
+  for (const t of tabs) t.setAttribute("aria-selected", String(t.id === `tab-${view}`));
+  $("diagram").hidden = view !== "diagram";
+  editor.hidden = view !== "json";
+  if (view === "diagram") diagram.render();
+}
 
 for (const name of Object.keys(EXAMPLES)) {
   const o = document.createElement("option");
@@ -36,6 +47,8 @@ for (const name of Object.keys(EXAMPLES)) {
 
 function load(name: string): void {
   editor.value = JSON.stringify(EXAMPLES[name], null, 2);
+  diagram.reset();
+  if (!$("diagram").hidden) diagram.render();
   const u = new URL(location.href);
   u.searchParams.set("example", name);
   history.replaceState(null, "", u);
@@ -99,9 +112,11 @@ function run(): void {
 
 picker.addEventListener("change", () => load(picker.value));
 runButton.addEventListener("click", run);
+for (const t of tabs) t.addEventListener("click", () => show(t.id === "tab-diagram" ? "diagram" : "json"));
 
 const wanted = new URL(location.href).searchParams.get("example");
 const initial = wanted !== null && wanted in EXAMPLES ? wanted : (Object.keys(EXAMPLES)[0] as string);
 picker.value = initial;
+show("diagram");
 load(initial);
 if (new URL(location.href).searchParams.get("run") === "1") run();

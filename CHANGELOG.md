@@ -5,6 +5,10 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 
 ## [Unreleased]
 
+### Added
+- A drag-and-drop diagram editor in the browser demo: add components from a palette, link them by dragging between
+  ports, and edit inputs in an inspector. It reads and writes the model JSON. See [docs/browser-demo.md](docs/browser-demo.md).
+
 ## [0.2.0] - 2026-10-05
 
 ### Changed
