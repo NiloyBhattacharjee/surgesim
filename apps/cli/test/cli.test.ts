@@ -337,6 +337,9 @@ describe("HTML reports and comparisons", () => {
     const pcts = [...out.matchAll(/\(([+-][\d.e+]+)%\)/g)].map((m) => Math.abs(Number(m[1])));
     expect(pcts.length).toBeGreaterThan(1);
     expect(pcts).toEqual([...pcts].sort((x, y) => y - x));
+    // ... and says what changed between the models (names are ignored: they do not change results).
+    expect(out).toContain("Model changes (1):\n  pool concurrency: 3 -> 1");
+    expect(h.fs.files.get("out/cmp.html")).toContain("What changed in the model");
     const html = h.fs.files.get("out/cmp.html")!;
     expect(html).toContain("<h1>3 workers vs 1 worker</h1>");
     expect(html).toContain("differs");
@@ -351,6 +354,8 @@ describe("HTML reports and comparisons", () => {
     const h = harness({ "base.json": await run(modelJson(3)), "candidate.json": await run(modelJson(1)) });
     expect(await h.call(["compare", "base.json", "candidate.json", "--html", "c.html"])).toBe(EXIT_OK);
     expect(h.fs.files.get("c.html")).toContain("<h1>base vs candidate</h1>");
+    expect(h.fs.files.get("c.html")).toContain("both sides are a results file");
+    expect(h.stdout.join("\n")).not.toContain("Model changes");
   });
 
   it("compare disambiguates identical labels and needs exactly two inputs", async () => {

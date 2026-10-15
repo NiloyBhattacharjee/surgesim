@@ -1,6 +1,6 @@
 import { runModel, type RunResults } from "@surgesim/engine";
 import type { Logger } from "@surgesim/platform";
-import { SIGNIFICANCE_LEVEL, computeDeltas, fmtP, methodNote, renderComparison, renderReport } from "@surgesim/report";
+import { SIGNIFICANCE_LEVEL, computeDeltas, diffModels, fmtP, methodNote, renderComparison, renderReport } from "@surgesim/report";
 import { EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE } from "./exit.js";
 import { loadModelSource, readModelSource, type SourceHost } from "./source.js";
 
@@ -14,7 +14,8 @@ function baseLabel(path: string): string {
   return name.replace(/\.[^.]+$/, "") || name;
 }
 
-export type ResultsLoad = { ok: true; results: RunResults } | { ok: false; code: number; message: string };
+/** `model` is the model JSON when `path` was a model (results files do not include one). */
+export type ResultsLoad = { ok: true; results: RunResults; model?: unknown } | { ok: false; code: number; message: string };
 
 /**
  * Load run results from `path`: a results file written by `surgesim run --json`, or a model (JSON or
@@ -33,7 +34,7 @@ export async function loadResults(path: string, host: SourceHost, overrides: { s
   const loaded = await loadModelSource(path, host);
   if (!loaded.ok) return loaded;
   try {
-    return { ok: true, results: runModel(loaded.model, overrides) };
+    return { ok: true, results: runModel(loaded.model, overrides), model: loaded.json };
   } catch (e) {
     return { ok: false, code: EXIT_INVALID_MODEL, message: `${path}: the simulation could not finish: ${(e as Error).message}` };
   }
@@ -105,12 +106,22 @@ export async function runCompare(
     const pct = d.pct === null ? "" : ` (${d.pct > 0 ? "+" : ""}${Number(d.pct.toPrecision(3))}%)`;
     logger.info(`  ${d.id}: ${Number((d.a.mean as number).toPrecision(4))} -> ${Number((d.b.mean as number).toPrecision(4))}${pct}, p ${fmtP(d.adjustedPValue) || "n/a"}`);
   }
+  if (a.model !== undefined && b.model !== undefined) {
+    const changes = diffModels(a.model, b.model);
+    logger.info(changes.length === 0 ? "The models are identical." : `Model changes (${changes.length}):`);
+    for (const c of changes.slice(0, 10)) logger.info(`  ${c.where} ${c.what}: ${c.a ?? "not set"} -> ${c.b ?? "not set"}`);
+    if (changes.length > 10) logger.info(`  ... and ${changes.length - 10} more${options.html === undefined ? " (see --html)" : ""}`);
+  }
 
   if (options.html !== undefined) {
     try {
       await host.fs.writeText(
         options.html,
-        renderComparison({ label: labelA, results: a.results }, { label: labelB, results: b.results }, options.title ? { title: options.title } : {}),
+        renderComparison(
+          { label: labelA, results: a.results, ...(a.model !== undefined ? { model: a.model } : {}) },
+          { label: labelB, results: b.results, ...(b.model !== undefined ? { model: b.model } : {}) },
+          options.title ? { title: options.title } : {},
+        ),
       );
     } catch (e) {
       logger.error(`error: cannot write ${options.html}: ${(e as Error).message}`);

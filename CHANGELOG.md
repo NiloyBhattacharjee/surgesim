@@ -6,9 +6,9 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ## [Unreleased]
 
 ### Added
-- `surgesim import` reads YAML CloudFormation templates, including short-form intrinsics (`!Ref`, `!GetAtt`, `!Sub`,
-  `!Join`, ...), and imports them to the same model as the equivalent JSON template. `@surgesim/importer` exports
-  `parseTemplate`. ([#9](https://github.com/NiloyBhattacharjee/surgesim/issues/9))
+- Comparison reports show **what changed in the model** (settings, components added or removed, inputs, links and
+  assertions) when both sides are models, and `surgesim compare` prints the same list. The MCP `compare` tool returns it
+  as `modelChanges`, and `@surgesim/report` exports `diffModels`. ([#19](https://github.com/NiloyBhattacharjee/surgesim/issues/19))
 
 ### Added
 - A drag-and-drop diagram editor in the browser demo: add components from a palette, link them by dragging between

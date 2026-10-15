@@ -72,5 +72,8 @@ describe("surgesim mcp", () => {
     expect(mean).toMatchObject({ method: "paired", significant: true });
     expect(mean.b).toBeLessThan(mean.a);
     expect(cmp.body.differ).toContain(mean.id);
+    expect(cmp.body.modelChanges).toEqual([
+      { where: "server", what: "serviceTime", a: '{"dist":"exponential","mean":1}', b: '{"dist":"exponential","mean":0.5}' },
+    ]);
   });
 });
