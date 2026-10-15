@@ -1,5 +1,6 @@
 import { adjustPValues, pairedTTest, welchTTest, type AssertionResult, type OutputSummary, type RunResults, type TimeSeriesResult } from "@surgesim/engine";
 import { barChart, lineChart, stripChart, type BarRow, type LineSeries } from "./charts.js";
+import { diffModels } from "./diff.js";
 import { SCRIPT } from "./script.js";
 import { STYLES } from "./styles.js";
 import { compact, esc, fmt, unitSuffix } from "./util.js";
@@ -14,6 +15,8 @@ export interface ReportOptions {
 export interface LabelledResults {
   label: string;
   results: RunResults;
+  /** The model (JSON format) that produced `results`. When both sides have one, the comparison shows what changed. */
+  model?: unknown;
 }
 
 const PASS_ICON = `<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 5.5 4 8l4.5-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -376,6 +379,22 @@ export function renderComparison(a: LabelledResults, b: LabelledResults, options
 
   const meta = [a, b].map((x) => `<p class="meta"><strong>${esc(x.label)}</strong>: ${esc(x.results.modelName ?? "(unnamed)")} · ${esc(settingsLine(x.results))}</p>`).join("");
 
+  // what changed between the models
+  let changes: string;
+  if (a.model === undefined || b.model === undefined) {
+    changes = `<p class="note">What changed in the model is not shown: ${a.model === undefined && b.model === undefined ? "both sides are" : "one side is"} a results file, which does not include its model. Compare the model files to see it.</p>`;
+  } else {
+    const diff = diffModels(a.model, b.model);
+    const cell = (v: string | null) => (v === null ? `<td class="absent">not set</td>` : `<td><code>${esc(v)}</code></td>`);
+    changes =
+      `<h2>What changed in the model</h2>` +
+      (diff.length === 0
+        ? `<p class="sub">Nothing: the two models are identical.</p>`
+        : `<section class="card"><div class="scroll"><table class="changes"><thead><tr><th>Where</th><th>What</th><th>${esc(a.label)}</th><th>${esc(b.label)}</th></tr></thead><tbody>` +
+          diff.map((c) => `<tr><td class="comp">${esc(c.where)}</td><td>${esc(c.what)}</td>${cell(c.a)}${cell(c.b)}</tr>`).join("") +
+          `</tbody></table></div><p class="note">Components are matched by name, so a renamed component shows as removed and added. "not set" means the model leaves it out (the default applies).</p></section>`);
+  }
+
   // assertions, side by side
   let assertions = "";
   if ((a.results.assertions?.length ?? 0) + (b.results.assertions?.length ?? 0) > 0) {
@@ -506,6 +525,7 @@ export function renderComparison(a: LabelledResults, b: LabelledResults, options
   const body =
     `<header class="top"><h1>${esc(title)}</h1>${meta}</header>` +
     legend +
+    changes +
     assertions +
     notableHtml +
     table +

@@ -26,6 +26,11 @@ Charts follow one rule: one y-axis per chart. Different measures get different c
 
 ## A comparison contains
 
+- **What changed in the model**: settings, components added or removed, and each shared component's type, inputs and
+  links (matched by name, so a rename shows as removed plus added), and assertions added or removed. Inputs a model
+  leaves out show as "not set". This needs the models, so it appears when you compare two model files; a results file
+  from `surgesim run --json` does not include its model, and the report says so. The terminal summary lists the same
+  changes,
 - both runs' assertions side by side,
 - **Biggest differences**: the largest changes among outputs that *differ*,
 - a table of every shared output: both means, the change (**B minus A**, in the output's own unit), the percentage,
@@ -71,7 +76,8 @@ same times.
 ## Embedding
 
 `@surgesim/report` is plain TypeScript with no Node or DOM APIs: `renderReport(results)` and
-`renderComparison({label, results}, {label, results})` return strings. Use them in a build step, a server, or in the
+`renderComparison({label, results, model?}, {label, results, model?})` return strings (pass both models to get the
+model diff; `diffModels(a, b)` returns it as data). Use them in a build step, a server, or in the
 browser (see the demo).
 
 ## Theming and print

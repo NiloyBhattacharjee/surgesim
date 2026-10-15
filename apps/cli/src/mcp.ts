@@ -1,5 +1,5 @@
 import { createDefaultRegistry, describeSchema, loadModel, runModel, type RunResults } from "@surgesim/engine";
-import { computeDeltas } from "@surgesim/report";
+import { computeDeltas, diffModels } from "@surgesim/report";
 import { readModelSource, type SourceHost } from "./source.js";
 
 // `surgesim mcp`: the Model Context Protocol over stdio (newline-delimited JSON-RPC 2.0), so an agent can read the
@@ -58,8 +58,8 @@ async function modelJson(value: unknown, host: SourceHost): Promise<unknown> {
   return source.json;
 }
 
-async function results(value: unknown, args: Args, host: SourceHost): Promise<RunResults> {
-  const loaded = loadModel(await modelJson(value, host));
+async function results(json: unknown, args: Args): Promise<RunResults> {
+  const loaded = loadModel(json);
   if (!loaded.ok) throw new ToolError(`invalid model:\n${JSON.stringify(loaded.errors, null, 2)}`);
   const overrides = {
     ...(Number.isInteger(args["seed"]) ? { seed: args["seed"] as number } : {}),
@@ -86,13 +86,14 @@ async function callTool(name: string, args: Args, host: SourceHost): Promise<Too
         return reply(loaded.ok ? { ok: true } : { ok: false, errors: loaded.errors });
       }
       case "run": {
-        const r = await results(args["model"], args, host);
+        const r = await results(await modelJson(args["model"], host), args);
         const outputs = r.outputs.map((o) => ({ id: o.id, unit: o.unit, n: o.n, mean: o.mean, ci95: o.ci95 && { low: o.ci95.low, high: o.ci95.high } }));
         return reply({ settings: r.settings, outputs, ...(r.assertions ? { assertions: r.assertions } : {}) }, r.assertions?.some((a) => !a.passed) ?? false);
       }
       case "compare": {
-        const a = await results(args["a"], args, host);
-        const b = await results(args["b"], args, host);
+        const [jsonA, jsonB] = [await modelJson(args["a"], host), await modelJson(args["b"], host)];
+        const a = await results(jsonA, args);
+        const b = await results(jsonB, args);
         const { deltas, onlyA, onlyB } = computeDeltas(a, b);
         const rows = deltas.map((d) => ({
           id: d.id,
@@ -104,7 +105,7 @@ async function callTool(name: string, args: Args, host: SourceHost): Promise<Too
           adjustedPValue: d.adjustedPValue,
           significant: d.significant,
         }));
-        return reply({ differ: rows.filter((d) => d.significant === true).map((d) => d.id), deltas: rows, onlyA, onlyB });
+        return reply({ differ: rows.filter((d) => d.significant === true).map((d) => d.id), deltas: rows, onlyA, onlyB, modelChanges: diffModels(jsonA, jsonB) });
       }
     }
   } catch (e) {

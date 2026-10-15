@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadModel, runModel, summarize, type RunResults } from "@surgesim/engine";
-import { computeDeltas, methodNote, renderComparison, renderReport } from "../src/index.js";
+import { computeDeltas, diffModels, methodNote, renderComparison, renderReport } from "../src/index.js";
 
 type Comp = { type: string; name: string; inputs?: object; links?: object };
 
@@ -304,5 +304,60 @@ describe("renderComparison", () => {
     expect(out).not.toContain("<b>A</b>");
     expect(out).toContain("&lt;b&gt;A&lt;/b&gt;");
     expect(out).toContain("B&amp;C");
+  });
+});
+
+describe("diffModels", () => {
+  const base: Record<string, any> = {
+    version: 1,
+    name: "base",
+    settings: { duration: 600, seed: 1 },
+    components: [
+      { type: "EntityGenerator", name: "gen", inputs: { interArrivalTime: 1 }, links: { next: "pool" } },
+      { type: "WorkerPool", name: "pool", inputs: { concurrency: 10, serviceTime: { dist: "exponential", mean: 0.5 } }, links: { next: "sink" } },
+      { type: "EntitySink", name: "sink" },
+    ],
+    assertions: [{ output: "sink.p99", op: "<=", value: 2 }],
+  };
+
+  it("finds nothing between a model and itself, or a copy with keys in another order", () => {
+    expect(diffModels(base, base)).toEqual([]);
+    const reordered = structuredClone(base);
+    reordered.components[1].inputs = { serviceTime: { mean: 0.5, dist: "exponential" }, concurrency: 10 };
+    reordered.name = "renamed model"; // names do not change results
+    expect(diffModels(base, reordered)).toEqual([]);
+  });
+
+  it("lists settings, input, link, component and assertion changes in a fixed order", () => {
+    const b = structuredClone(base);
+    b.settings = { duration: 900, seed: 1, replications: 5 };
+    b.components[1] = { ...b.components[1], inputs: { concurrency: 16, serviceTime: { dist: "exponential", mean: 0.5 }, failureProbability: 0.1 }, links: { next: "retry" } };
+    b.components.push({ type: "RetryPolicy", name: "retry", inputs: { maxAttempts: 3 }, links: { next: "sink" } });
+    b.components = b.components.filter((c: { name: string }) => c.name !== "gen");
+    b.components.unshift({ type: "EntityGenerator", name: "traffic", inputs: { interArrivalTime: 1 }, links: { next: "pool" } });
+    b.assertions = [{ output: "sink.p99", op: "<=", value: 3 }];
+    expect(diffModels(base, b)).toEqual([
+      { where: "settings", what: "duration", a: "600", b: "900" },
+      { where: "settings", what: "replications", a: null, b: "5" },
+      { where: "gen", what: "component", a: '"EntityGenerator"', b: null },
+      { where: "traffic", what: "component", a: null, b: '"EntityGenerator"' },
+      { where: "retry", what: "component", a: null, b: '"RetryPolicy"' },
+      { where: "pool", what: "concurrency", a: "10", b: "16" },
+      { where: "pool", what: "failureProbability", a: null, b: "0.1" },
+      { where: "pool", what: "link next", a: '"sink"', b: '"retry"' },
+      { where: "assertions", what: "sink.p99", a: '{"output":"sink.p99","op":"<=","value":2}', b: null },
+      { where: "assertions", what: "sink.p99", a: null, b: '{"output":"sink.p99","op":"<=","value":3}' },
+    ]);
+  });
+
+  it("the comparison report shows the changes when both models are given, and says why when not", () => {
+    const r = results({ workers: 2 });
+    const changed = structuredClone(base);
+    changed.components[1].inputs.concurrency = 12;
+    const html = renderComparison({ label: "A", results: r, model: base }, { label: "B", results: r, model: changed });
+    expect(html).toContain("What changed in the model");
+    expect(html).toMatch(/<td class="comp">pool<\/td><td>concurrency<\/td><td><code>10<\/code><\/td><td><code>12<\/code><\/td>/);
+    expect(renderComparison({ label: "A", results: r, model: base }, { label: "B", results: r, model: base })).toContain("the two models are identical");
+    expect(renderComparison({ label: "A", results: r, model: base }, { label: "B", results: r })).toContain("one side is a results file");
   });
 });
