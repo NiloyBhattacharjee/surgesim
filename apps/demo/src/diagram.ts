@@ -1,8 +1,28 @@
-import { createDefaultRegistry, describeSchema, type InputSpec, type SchemaDescription } from "@surgesim/engine";
+import { createDefaultRegistry, describeSchema, loadModel, type InputSpec, type SchemaDescription } from "@surgesim/engine";
 
 /** Every built-in component schema, as plain data. Drives the palette, ports and inspector. */
 export const SCHEMAS: SchemaDescription[] = createDefaultRegistry().schemas().map(describeSchema);
 const byType = new Map(SCHEMAS.map((s) => [s.type, s]));
+
+/** How each type looks in the editor: friendly label, colour kind, default name. Palette order follows the flow. */
+const LOOK: Record<string, [label: string, kind: string, name: string]> = {
+  EntityGenerator: ["Traffic source", "source", "traffic"],
+  RateLimiter: ["Rate limiter", "control", "limiter"],
+  RetryPolicy: ["Retry policy", "control", "retry"],
+  Queue: ["Queue", "queue", "queue"],
+  MessageQueue: ["Message queue (SQS)", "queue", "messages"],
+  Server: ["Server", "worker", "server"],
+  WorkerPool: ["Worker pool", "worker", "workers"],
+  Autoscaler: ["Autoscaler", "control", "autoscaler"],
+  EntitySink: ["Done (sink)", "sink", "done"],
+};
+const look = (type: string): [string, string, string] => LOOK[type] ?? [type, "control", type[0]!.toLowerCase() + type.slice(1)];
+
+/** Whether `targetType` may be the target of link `key` on a `fromType` component (the link's role check). */
+export function canLink(fromType: string, key: string, targetType: string): boolean {
+  const accepts = byType.get(fromType)?.links.find((l) => l.key === key)?.accepts;
+  return accepts !== undefined && (byType.get(targetType)?.roles.includes(accepts) ?? false);
+}
 
 interface Component {
   type: string;
@@ -34,7 +54,7 @@ function starter(spec: InputSpec): unknown {
 /** Add a component with a fresh name and starter values for the inputs it needs to validate. Returns its name. */
 export function addComponent(m: Model, type: string): string {
   const comps = (m.components ??= []);
-  const base = type[0]!.toLowerCase() + type.slice(1);
+  const base = look(type)[2];
   let name = base;
   for (let i = 2; comps.some((c) => c.name === name); i++) name = `${base}${i}`;
   const inputs: Record<string, unknown> = {};
@@ -138,15 +158,26 @@ const SVG = "http://www.w3.org/2000/svg";
  */
 export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { render(): void; reset(): void } {
   const palette = el("div", "palette");
+  const toolbar = el("div", "toolbar");
+  const check = el("span", "check");
+  const tidy = el("button", "", "Tidy up");
+  tidy.type = "button";
+  tidy.title = "Forget dragged positions and lay the diagram out along the flow.";
+  toolbar.append(check, tidy);
   const canvas = el("div", "canvas");
   const inspector = el("div", "inspector");
-  root.replaceChildren(palette, canvas, inspector);
+  root.replaceChildren(palette, toolbar, canvas, inspector);
   const pos = new Map<string, { x: number; y: number }>();
   let selected: string | null = null;
   let model: Model | null = null;
 
-  for (const s of SCHEMAS) {
-    const chip = el("button", "chip", s.type);
+  const order = [...Object.keys(LOOK), ...SCHEMAS.map((s) => s.type).filter((t) => !(t in LOOK))];
+  for (const type of order) {
+    const s = byType.get(type);
+    if (!s) continue;
+    const [label, kind] = look(type);
+    const chip = el("button", `chip kind-${kind}`);
+    chip.append(el("span", "dot"), label);
     chip.type = "button";
     chip.title = `${s.description} Drag onto the canvas, or click to add.`;
     chip.draggable = true;
@@ -154,6 +185,22 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
     chip.addEventListener("click", () => add(s.type, null));
     palette.appendChild(chip);
   }
+  tidy.addEventListener("click", () => {
+    pos.clear();
+    render();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (root.hidden || selected === null || !model || (e.target as HTMLElement).closest("input, select, textarea")) return;
+    if (e.key === "Delete" || e.key === "Backspace") {
+      removeComponent(model, selected);
+      pos.delete(selected);
+      selected = null;
+      commit();
+    } else if (e.key === "Escape") {
+      selected = null;
+      render();
+    }
+  });
   canvas.addEventListener("dragover", (e) => e.preventDefault());
   canvas.addEventListener("drop", (e) => {
     const type = e.dataTransfer?.getData("text/x-surgesim-type");
@@ -194,11 +241,22 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
     inspector.replaceChildren();
     if (!model || (model.components !== undefined && !Array.isArray(model.components))) {
       model = null;
+      check.className = "check bad";
+      check.textContent = "Invalid JSON";
       canvas.appendChild(el("p", "hint", "The JSON does not parse as a model. Fix it in the JSON tab to see the diagram."));
       return;
     }
     const comps = model.components ?? [];
-    if (comps.length === 0) canvas.appendChild(el("p", "hint", "Drag a component from the palette onto the canvas."));
+    if (comps.length === 0) canvas.appendChild(el("p", "hint empty", "Drag a component from the palette above onto this canvas, or click one to add it. Start with a Traffic source."));
+
+    // Live validation: the same checks Run does, shown on the nodes and ports they concern.
+    const loaded = loadModel(model);
+    const errors = loaded.ok ? [] : loaded.errors;
+    check.className = errors.length === 0 ? "check ok" : "check bad";
+    check.textContent = errors.length === 0 ? "✓ Ready to run" : `${errors.length} problem${errors.length === 1 ? "" : "s"}`;
+    check.title = errors.map((e) => (e.component ? `[${[e.component, e.key].filter(Boolean).join(".")}] ` : "") + e.message).join("\n");
+    const problems = (name: string, key?: string): string[] =>
+      errors.filter((e) => e.component === name && (key === undefined || e.key === key)).map((e) => e.message);
     const grid = layout(model);
     const svg = document.createElementNS(SVG, "svg");
     canvas.appendChild(svg);
@@ -207,16 +265,24 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
       const [d, lane] = grid.get(c.name)!;
       const p = pos.get(c.name) ?? { x: 16 + lane * 190, y: 16 + d * 150 };
       pos.set(c.name, p);
-      const node = el("div", "node");
+      const node = el("div", `node kind-${look(c.type)[1]}`);
       if (c.name === selected) node.classList.add("selected");
       node.style.left = `${p.x}px`;
       node.style.top = `${p.y}px`;
-      node.append(el("div", "type", c.type), el("div", "name", c.name));
+      node.append(el("div", "type", look(c.type)[0]), el("div", "name", c.name));
+      const own = problems(c.name);
+      if (own.length > 0) {
+        node.classList.add("bad");
+        node.title = own.join("\n");
+        node.appendChild(el("span", "badge", "!"));
+      }
       for (const l of byType.get(c.type)?.links ?? []) {
         const row = el("div", "port-row", l.key);
-        row.title = l.description;
         const dot = el("span", "port");
         dot.dataset.key = l.key;
+        const bad = problems(c.name, l.key);
+        row.title = bad.length > 0 ? bad.join("\n") : `${l.description} Drag to a highlighted component to link.`;
+        if (bad.length > 0) row.classList.add("bad");
         if (c.links?.[l.key] !== undefined) dot.classList.add("on");
         dot.addEventListener("pointerdown", (e) => dragLink(e, c.name, l.key, dot));
         row.appendChild(dot);
@@ -228,7 +294,7 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
       nodes.set(c.name, node);
     }
     const drawEdges = (): void => {
-      svg.replaceChildren();
+      svg.innerHTML = '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>';
       svg.setAttribute("width", String(canvas.scrollWidth));
       svg.setAttribute("height", String(canvas.scrollHeight));
       for (const c of comps)
@@ -238,7 +304,9 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
           if (!from || !to) continue;
           const a = centre(from);
           const b = { x: to.offsetLeft + to.offsetWidth / 2, y: to.offsetTop };
-          svg.appendChild(curve(a, b, isPull(c.type, key)));
+          const path = curve(a, b, isPull(c.type, key));
+          path.setAttribute("marker-end", "url(#arrow)");
+          svg.appendChild(path);
         }
     };
     const centre = (dot: HTMLElement): { x: number; y: number } => {
@@ -255,8 +323,8 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
       node.setPointerCapture(e.pointerId);
       node.onpointermove = (ev) => {
         const now = local(ev);
-        p.x = Math.max(0, origin.x + now.x - start.x);
-        p.y = Math.max(0, origin.y + now.y - start.y);
+        p.x = Math.max(0, Math.round((origin.x + now.x - start.x) / 8) * 8);
+        p.y = Math.max(0, Math.round((origin.y + now.y - start.y) / 8) * 8);
         moved ||= Math.abs(now.x - start.x) + Math.abs(now.y - start.y) > 3;
         node.style.left = `${p.x}px`;
         node.style.top = `${p.y}px`;
@@ -275,19 +343,37 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
       e.stopPropagation();
       dot.setPointerCapture(e.pointerId);
       const a = centre(dot);
+      const fromType = comps.find((c) => c.name === name)!.type;
       let line: SVGPathElement | null = null;
+      let hover: HTMLElement | null = null;
+      const nodeAt = (ev: PointerEvent): HTMLElement | null =>
+        document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>(".node") ?? null;
       dot.onpointermove = (ev) => {
+        if (line === null) {
+          // Show where this link can go: valid targets light up, the rest fade.
+          canvas.classList.add("linking");
+          for (const c of comps)
+            nodes.get(c.name)!.classList.add(c.name !== name && canLink(fromType, key, c.type) ? "can-drop" : "no-drop");
+        }
         line?.remove();
         line = curve(a, local(ev), false);
         line.classList.add("pending");
         svg.appendChild(line);
+        hover?.classList.remove("hover");
+        hover = nodeAt(ev);
+        if (hover?.classList.contains("can-drop")) hover.classList.add("hover");
       };
       dot.onpointerup = (ev) => {
         dot.onpointermove = dot.onpointerup = null;
-        line?.remove();
-        if (line === null) return; // a click, not a drag
-        const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>(".node")?.dataset.name;
-        setLink(model!, name, key, target && target !== name ? target : null);
+        if (line === null) {
+          selected = name; // a click on a port selects its component
+          render();
+          return;
+        }
+        canvas.classList.remove("linking");
+        const target = nodeAt(ev);
+        if (target === null) setLink(model!, name, key, null);
+        else if (target.classList.contains("can-drop")) setLink(model!, name, key, target.dataset.name!);
         commit();
       };
     }
@@ -295,7 +381,8 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
     requestAnimationFrame(drawEdges);
     const sel = comps.find((c) => c.name === selected);
     if (sel) inspect(sel, comps);
-    else inspector.appendChild(el("p", "hint", "Click a component to edit it. Drag from a port (●) to another component to link them; drop on empty space to unlink."));
+    else if (comps.length > 0)
+      inspector.appendChild(el("p", "hint", "Click a component to edit it (Delete removes it). Drag from a port ● to a highlighted component to link them; drop on empty space to unlink."));
   }
 
   function curve(a: { x: number; y: number }, b: { x: number; y: number }, pull: boolean): SVGPathElement {
@@ -309,7 +396,9 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
   function inspect(c: Component, comps: Component[]): void {
     const schema = byType.get(c.type);
     const head = el("div", "inspector-head");
-    head.appendChild(el("strong", "", c.type));
+    const title = el("strong", "", look(c.type)[0]);
+    title.appendChild(el("span", "type-id", ` ${c.type}`));
+    head.appendChild(title);
     const del = el("button", "", "Delete");
     del.type = "button";
     del.addEventListener("click", () => {
@@ -391,9 +480,11 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
 
     for (const l of schema?.links ?? []) {
       const select = el("select");
-      for (const v of ["", ...comps.filter((x) => x.name !== c.name).map((x) => x.name)])
+      const current = c.links?.[l.key];
+      const valid = comps.filter((x) => x.name !== c.name && (canLink(c.type, l.key, x.type) || x.name === current));
+      for (const v of ["", ...valid.map((x) => x.name)])
         select.appendChild(Object.assign(el("option", "", v === "" ? "(none)" : v), { value: v }));
-      select.value = c.links?.[l.key] ?? "";
+      select.value = current ?? "";
       select.addEventListener("change", () => {
         setLink(model!, c.name, l.key, select.value === "" ? null : select.value);
         commit();

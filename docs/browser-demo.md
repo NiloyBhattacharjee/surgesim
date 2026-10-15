@@ -8,7 +8,7 @@ pnpm demo:build      # writes apps/demo/dist/index.html
 pnpm demo            # builds, then serves http://localhost:5173/
 ```
 
-`apps/demo/dist/index.html` is **one self-contained file** (about 210 KB). The engine and the report renderer are
+`apps/demo/dist/index.html` is **one self-contained file** (about 230 KB). The engine and the report renderer are
 bundled and run in a **Web Worker** whose source is embedded in the page, so the file works when double-clicked
 (`file://`), from any static host, or attached to an email. Nothing is fetched and nothing leaves the machine. It lets
 you pick an example, edit the model, run it, and read the HTML report in place (with a download button). Add
@@ -20,10 +20,15 @@ The **Diagram** tab is a drag-and-drop editor for the same model (pick **Blank**
 
 - Drag a component type from the palette onto the canvas, or click it to add one below the others. New components
   get starter values for their required inputs, so they validate as soon as they are linked.
-- Drag a node to move it. Drag from a port (●) to another node to set that link; drop on empty space to clear it.
-  Dashed lines are pull links (`queue`), which point against the flow.
-- Click a node to edit its name, inputs and links. Renaming or deleting a component also updates the links, time
-  series and assertions that refer to it.
+- Drag a node to move it (it snaps to the grid); **Tidy up** lays everything out along the flow again. Drag from a
+  port (●) to set that link: the components it may connect to light up and the rest fade, and dropping on empty
+  space clears it. Dashed lines are pull links (`queue`), which point against the flow.
+- Click a node to edit its name, inputs and links (link menus offer only valid targets). **Delete** removes the
+  selected component and **Esc** deselects it. Renaming or deleting a component also updates the links, time series
+  and assertions that refer to it.
+- The model is validated as you edit, with the same checks **Run** applies: the bar above the canvas says
+  "Ready to run" or how many problems there are (hover for the list), and components and ports with a problem are
+  marked in red.
 
 The JSON stays the source of truth: every diagram edit rewrites it, and the **JSON** tab shows the result. Node
 positions are not saved (the model format has no layout fields); the diagram lays a model out by flow depth when it

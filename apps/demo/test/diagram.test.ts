@@ -1,6 +1,6 @@
 import { loadModel } from "@surgesim/engine";
 import { describe, expect, it } from "vitest";
-import { SCHEMAS, addComponent, layout, removeComponent, renameComponent, setLink, type Model } from "../src/diagram.js";
+import { SCHEMAS, addComponent, canLink, layout, removeComponent, renameComponent, setLink, type Model } from "../src/diagram.js";
 
 const base = (): Model => ({ version: 1, settings: { duration: 60 }, components: [] }) as Model;
 
@@ -23,13 +23,22 @@ describe("diagram model edits", () => {
     addComponent(m, "WorkerPool");
     addComponent(m, "WorkerPool");
     const scaler = addComponent(m, "Autoscaler");
-    setLink(m, scaler, "target", "workerPool");
+    setLink(m, scaler, "target", "workers");
     for (const t of ["EntityGenerator", "Queue", "Server", "EntitySink", "MessageQueue", "RetryPolicy", "RateLimiter"]) addComponent(m, t);
     const r = loadModel(m);
     // Unlinked components may fail validation (e.g. Server needs a queue), but never because of an input.
     const inputKeys = new Set(SCHEMAS.flatMap((s) => s.inputs.map((i) => i.key)));
     expect(r.ok ? [] : r.errors.filter((e) => e.key === null || inputKeys.has(e.key))).toEqual([]);
-    expect(m.components!.map((c) => c.name).slice(0, 2)).toEqual(["workerPool", "workerPool2"]);
+    expect(m.components!.map((c) => c.name).slice(0, 2)).toEqual(["workers", "workers2"]);
+  });
+
+  it("canLink follows the schema roles", () => {
+    expect(canLink("Server", "queue", "Queue")).toBe(true);
+    expect(canLink("Server", "queue", "MessageQueue")).toBe(false); // Server needs role "queue", MessageQueue is only "pullable"
+    expect(canLink("WorkerPool", "queue", "MessageQueue")).toBe(true);
+    expect(canLink("Autoscaler", "target", "WorkerPool")).toBe(true);
+    expect(canLink("Autoscaler", "target", "Server")).toBe(false);
+    expect(canLink("EntityGenerator", "next", "EntityGenerator")).toBe(false);
   });
 
   it("rename and remove keep links, time series and assertions consistent", () => {
