@@ -16,6 +16,8 @@ thresholds fail the build in CI.
 **[Try it in your browser](https://niloybhattacharjee.github.io/surgesim/?run=1&example=Traffic%20spike%3A%2050%2Fs%20to%20250%2Fs)**,
 no install: the engine runs in a Web Worker on the page and nothing leaves your machine.
 
+[![The browser demo replaying a run: the queue fills to about 6,000 as traffic spikes, the server's 100 workers stay saturated, then the backlog drains, next to the report](docs/images/demo.gif)](https://niloybhattacharjee.github.io/surgesim/?run=1&example=Traffic%20spike%3A%2050%2Fs%20to%20250%2Fs)
+
 [![A Surgesim report: traffic spikes from 50/s to 250/s for 2 minutes, the queue backlog peaks near 6,100 and p99 latency reaches 30 s](docs/images/report.png)](examples/traffic-spike.json)
 
 | You want to... | Use |
