@@ -135,6 +135,8 @@ td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
 td.comp { font-weight: 600; }
 tr.group td { border-top: 1px solid var(--axis); }
 .scroll { overflow-x: auto; }
+table.changes code { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+table.changes td.absent { color: var(--muted); font-style: italic; }
 details { margin-top: 8px; }
 summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
 details table { margin-top: 6px; }
