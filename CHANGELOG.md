@@ -6,6 +6,8 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ## [Unreleased]
 
 ### Added
+- `EntitySink` input `percentiles: "streaming"`: approximate p50/p95/p99 from a t-digest in constant memory, for long
+  or high-rate runs and the browser demo. The default stays `"exact"`. ([#20](https://github.com/NiloyBhattacharjee/surgesim/issues/20))
 - Comparison reports show **what changed in the model** (settings, components added or removed, inputs, links and
   assertions) when both sides are models, and `surgesim compare` prints the same list. The MCP `compare` tool returns it
   as `modelChanges`, and `@surgesim/report` exports `diffModels`. ([#19](https://github.com/NiloyBhattacharjee/surgesim/issues/19))

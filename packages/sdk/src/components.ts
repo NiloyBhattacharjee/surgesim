@@ -23,7 +23,7 @@ export const SPECS = {
     outputs: ["Utilisation", "AverageBusyWorkers", "BusyWorkers"],
   },
   EntitySink: {
-    inputs: [],
+    inputs: ["percentiles"],
     links: [],
     outputs: ["count", "mean", "p50", "p95", "p99"],
   },
@@ -98,7 +98,10 @@ export interface ServerProps extends Common {
   next?: Ref;
 }
 
-export type EntitySinkProps = Common;
+export interface EntitySinkProps extends Common {
+  /** `"exact"` (default) stores every time in system; `"streaming"` uses a t-digest in constant memory for long or high-rate runs. */
+  percentiles?: "exact" | "streaming";
+}
 
 export interface MessageQueueProps extends Common {
   /** Seconds a received message stays hidden before redelivery (default 30). */

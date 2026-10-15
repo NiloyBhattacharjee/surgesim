@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ExactPercentileTracker,
+  StreamingPercentileTracker,
   Tally,
   TimeWeightedStat,
   adjustPValues,
@@ -12,6 +13,7 @@ import {
   tTwoSidedP,
   welchTTest,
 } from "../src/stats/index.js";
+import { Rng, createSampler } from "../src/rng/index.js";
 
 describe("TimeWeightedStat", () => {
   it("integrates over time on a hand-calculable scenario", () => {
@@ -67,6 +69,67 @@ describe("ExactPercentileTracker", () => {
     expect(t.percentile(50)).toBe(2.5);
     t.add(0);
     expect(t.percentile(0)).toBe(0);
+    t.reset();
+    expect(t.count).toBe(0);
+    expect(t.percentile(50)).toBeNaN();
+    expect(t.mean()).toBeNaN();
+  });
+});
+
+describe("StreamingPercentileTracker", () => {
+  it("matches the exact tracker while every centroid holds one sample", () => {
+    const rng = new Rng(3, "small");
+    const exact = new ExactPercentileTracker();
+    const stream = new StreamingPercentileTracker();
+    for (let i = 0; i < 60; i++) {
+      const x = rng.nextFloat() * 100;
+      exact.add(x);
+      stream.add(x);
+    }
+    for (const p of [0, 1, 25, 50, 95, 99, 100]) expect(stream.percentile(p)).toBeCloseTo(exact.percentile(p), 9);
+  });
+
+  it("stays within 1% of the exact value, with rank error under 0.02 q(1 - q), on 10^6 heavy-tailed samples in bounded memory", () => {
+    const sample = createSampler({ dist: "lognormal", mean: 1, stdDev: 2 }, new Rng(11, "accuracy"));
+    const exact = new ExactPercentileTracker();
+    const stream = new StreamingPercentileTracker();
+    const xs: number[] = [];
+    for (let i = 0; i < 1_000_000; i++) {
+      const x = sample.nextSample();
+      xs.push(x);
+      exact.add(x);
+      stream.add(x);
+    }
+    xs.sort((a, b) => a - b);
+    expect(stream.count).toBe(exact.count);
+    expect(stream.mean()).toBeCloseTo(exact.mean(), 9);
+    expect(stream.percentile(0)).toBe(xs[0]);
+    expect(stream.percentile(100)).toBe(xs[xs.length - 1]);
+    for (const p of [1, 10, 50, 90, 95, 99, 99.9]) {
+      const est = stream.percentile(p);
+      const truth = exact.percentile(p);
+      expect(Math.abs(est - truth) / truth).toBeLessThan(0.01);
+      // Fraction of samples below the estimate, against q = p / 100. The k2 scale makes this error shrink as
+      // q(1 - q): coarse at the median, very fine in the tails.
+      let lo = 0;
+      let hi = xs.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if ((xs[mid] as number) < est) lo = mid + 1;
+        else hi = mid;
+      }
+      const q = p / 100;
+      expect(Math.abs(lo / xs.length - q)).toBeLessThan(0.02 * q * (1 - q));
+    }
+    // Constant memory: about `compression` centroids plus a bounded buffer, not one entry per sample.
+    const internal = stream as unknown as { means: number[]; buffer: number[] };
+    expect(internal.means.length).toBeLessThanOrEqual(200);
+    expect(internal.buffer.length).toBeLessThan(2000);
+  });
+
+  it("reset clears", () => {
+    const t = new StreamingPercentileTracker();
+    for (let i = 0; i < 5000; i++) t.add(i);
     t.reset();
     expect(t.count).toBe(0);
     expect(t.percentile(50)).toBeNaN();

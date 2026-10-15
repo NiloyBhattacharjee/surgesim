@@ -122,7 +122,11 @@ Links: `queue` (role `queue`, **required**), `next` (role `receiver`, optional).
 Outputs: `Utilisation` (time-weighted busy workers / capacity), `AverageBusyWorkers`, `BusyWorkers` (current).
 
 ### `EntitySink` — role `receiver`
-No inputs. Records each entity's time in system. Outputs: `count`, `mean`, `p50`, `p95`, `p99` (seconds).
+Records each entity's time in system. Outputs: `count`, `mean`, `p50`, `p95`, `p99` (seconds).
+Input `percentiles` (`"exact"` or `"streaming"`, default `"exact"`): `exact` stores every time in system, so memory grows
+with the number of entities; `streaming` keeps a t-digest of a few hundred numbers instead, for long or high-rate runs
+and the browser. Streaming percentiles are approximate: tested on 10^6 heavy-tailed samples, p1 to p99.9 are within 1%
+of the exact value, and the error is smallest in the tails. `count` and `mean` are exact either way.
 
 
 ## Component types (phase 2: cloud components)

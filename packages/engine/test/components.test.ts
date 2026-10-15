@@ -48,6 +48,21 @@ describe("Queue maxLength", () => {
   });
 });
 
+describe("EntitySink percentiles", () => {
+  it("streaming gives the exact count and mean and p99 within 1% of exact on an M/M/1 run", () => {
+    const m = queueingModel({ lambda: 0.8, service: { dist: "exponential", mean: 1 }, duration: 50_000, seed: 5 });
+    const exact = run(m);
+    m.components[3] = { type: "EntitySink", name: "sink", inputs: { percentiles: "streaming" } } as never;
+    const streaming = run(m);
+    expect(out(streaming, "sink.count").mean).toBe(out(exact, "sink.count").mean);
+    expect(out(streaming, "sink.mean").mean).toBeCloseTo(out(exact, "sink.mean").mean!, 9);
+    for (const id of ["sink.p50", "sink.p95", "sink.p99"]) {
+      const e = out(exact, id).mean!;
+      expect(Math.abs(out(streaming, id).mean! / e - 1)).toBeLessThan(0.01);
+    }
+  });
+});
+
 describe("EntityGenerator", () => {
   const gen = (inputs: object, duration = 1000) => ({
     version: 1,
