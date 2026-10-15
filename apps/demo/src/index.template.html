@@ -66,6 +66,22 @@ label { color: var(--ink2); font-size: 13px; }
 .port:hover { transform: scale(1.4); }
 .port.on { background: var(--k); }
 .port-row.bad .port { border-color: var(--bad); }
+.player { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink2); }
+.player[hidden] { display: none; }
+.player button { width: 2.4em; padding: 3px 0; cursor: pointer; }
+.player input[type=range] { flex: 1; min-width: 80px; padding: 0; border: 0; accent-color: var(--accent); }
+.player select { font-size: 12px; padding: 2px 6px; }
+.clock { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gauge { margin: 2px 0 4px; font-size: 11px; color: var(--ink2); }
+.gauge .gh { display: flex; justify-content: space-between; gap: 6px; }
+.gauge .gv { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.gauge .track { display: block; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.gauge i { display: block; height: 100%; width: 0; background: var(--k); }
+.gauge.hot i { background: var(--bad); }
+.gauge.hot .gv { color: var(--bad); }
+.canvas.playing path:not(.pending) { stroke-dasharray: 5 5; animation: flow .7s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -10; } }
+@media (prefers-reduced-motion: reduce) { .canvas.playing path { animation: none; } }
 .hint.empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 0 15%; margin: 0; font-size: 14px; }
 .type-id { color: var(--ink2); font-weight: 400; font-size: 12px; }
 .hint { color: var(--ink2); font-size: 13px; margin: 8px; }

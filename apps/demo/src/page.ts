@@ -81,6 +81,7 @@ function run(): void {
     return;
   }
   const req: RunRequest = { json };
+  const source = editor.value;
   const n = Number(reps.value);
   if (Number.isInteger(n) && n >= 1) req.replications = n;
   runButton.disabled = true;
@@ -96,6 +97,7 @@ function run(): void {
     }
     showErrors([]);
     frame.srcdoc = r.html;
+    diagram.play(r.playback, source);
     download.href = URL.createObjectURL(new Blob([r.html], { type: "text/html" }));
     download.download = "surgesim-report.html";
     download.hidden = false;

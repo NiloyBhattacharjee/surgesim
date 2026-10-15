@@ -8,6 +8,8 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ### Added
 - A drag-and-drop diagram editor in the browser demo: add components from a palette, link them by dragging between
   ports, and edit inputs in an inspector. It reads and writes the model JSON. See [docs/browser-demo.md](docs/browser-demo.md).
+- The demo's diagram replays a run: queue lengths, busy workers and other current-value outputs animate on the nodes
+  through simulated time, with play, scrub and speed controls.
 
 ## [0.2.0] - 2026-10-05
 

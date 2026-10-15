@@ -8,7 +8,7 @@ pnpm demo:build      # writes apps/demo/dist/index.html
 pnpm demo            # builds, then serves http://localhost:5173/
 ```
 
-`apps/demo/dist/index.html` is **one self-contained file** (about 230 KB). The engine and the report renderer are
+`apps/demo/dist/index.html` is **one self-contained file** (about 240 KB). The engine and the report renderer are
 bundled and run in a **Web Worker** whose source is embedded in the page, so the file works when double-clicked
 (`file://`), from any static host, or attached to an email. Nothing is fetched and nothing leaves the machine. It lets
 you pick an example, edit the model, run it, and read the HTML report in place (with a download button). Add
@@ -29,6 +29,13 @@ The **Diagram** tab is a drag-and-drop editor for the same model (pick **Blank**
 - The model is validated as you edit, with the same checks **Run** applies: the bar above the canvas says
   "Ready to run" or how many problems there are (hover for the list), and components and ports with a problem are
   marked in red.
+
+After a run, the diagram **replays** it: each node shows its current-value outputs (queue length, busy workers
+against capacity, tokens, retries in flight) moving through simulated time, and the links flow while it plays. Use
+the play button, the time slider and the speed menu to control it. The replay is replication 1 of the run you see in
+the report (same seed, so the same trajectory), sampled 200 times and interpolated between samples. Queue-like gauges
+are scaled to their own peak in the run; busy workers turn red at 90% of capacity. Editing the model clears the
+replay, since it would no longer match. With "reduce motion" set in the OS, it does not start playing by itself.
 
 The JSON stays the source of truth: every diagram edit rewrites it, and the **JSON** tab shows the result. Node
 positions are not saved (the model format has no layout fields); the diagram lays a model out by flow depth when it

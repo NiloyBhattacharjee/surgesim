@@ -1,4 +1,5 @@
 import { createDefaultRegistry, describeSchema, loadModel, type InputSpec, type SchemaDescription } from "@surgesim/engine";
+import type { Playback } from "./handler.js";
 
 /** Every built-in component schema, as plain data. Drives the palette, ports and inspector. */
 export const SCHEMAS: SchemaDescription[] = createDefaultRegistry().schemas().map(describeSchema);
@@ -156,7 +157,10 @@ const SVG = "http://www.w3.org/2000/svg";
  * Mount the drag-and-drop editor. The model JSON in `editor` stays the source of truth: every edit
  * here rewrites it, and `render()` redraws from it. Node positions live only on the page.
  */
-export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { render(): void; reset(): void } {
+export function mountDiagram(
+  root: HTMLElement,
+  editor: HTMLTextAreaElement,
+): { render(): void; reset(): void; play(playback: Playback, source: string): void } {
   const palette = el("div", "palette");
   const toolbar = el("div", "toolbar");
   const check = el("span", "check");
@@ -166,7 +170,87 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
   toolbar.append(check, tidy);
   const canvas = el("div", "canvas");
   const inspector = el("div", "inspector");
-  root.replaceChildren(palette, toolbar, canvas, inspector);
+
+  // Replay of the last run: gauges on the nodes follow replication 1 through simulated time.
+  const player = el("div", "player");
+  const playButton = el("button", "", "▶");
+  playButton.type = "button";
+  const scrub = el("input");
+  scrub.type = "range";
+  scrub.min = "0";
+  scrub.step = "any";
+  scrub.setAttribute("aria-label", "Simulated time");
+  const clock = el("span", "clock");
+  const speed = el("select");
+  speed.setAttribute("aria-label", "Playback speed");
+  for (const [v, label] of [["0.5", "20 s"], ["1", "10 s"], ["2", "5 s"], ["4", "2.5 s"]])
+    speed.appendChild(Object.assign(el("option", "", `whole run in ${label}`), { value: v }));
+  speed.value = "1";
+  player.append(playButton, scrub, clock, speed);
+  root.replaceChildren(palette, toolbar, player, canvas, inspector);
+  let replay: (Playback & { source: string }) | null = null;
+  let t = 0;
+  let playing = false;
+  let last = 0;
+  let gauges: { id: string; cap: string | number | null; row: HTMLElement; bar: HTMLElement; text: HTMLElement }[] = [];
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /** A sampled output at time `t`, linearly interpolated between samples. */
+  const valueAt = (id: string): number | null => {
+    const v = replay?.values[id];
+    if (!replay || !v || v.length === 0) return null;
+    const step = replay.times.length > 1 ? replay.times[1]! - replay.times[0]! : 1;
+    const x = t / step;
+    const i = Math.min(Math.floor(x), v.length - 1);
+    const a = v[i] ?? null;
+    const b = v[Math.min(i + 1, v.length - 1)] ?? null;
+    return a === null || b === null ? a : a + (b - a) * Math.min(1, x - i);
+  };
+  const peak = (id: string): number => Math.max(1, ...(replay?.values[id] ?? []).map((v) => v ?? 0));
+  const seconds = (s: number): string => (s >= 100 ? s.toFixed(0) : s.toFixed(1));
+
+  function paint(): void {
+    player.hidden = replay === null;
+    canvas.classList.toggle("playing", playing);
+    if (!replay) return;
+    for (const g of gauges) {
+      const v = valueAt(g.id);
+      const cap = typeof g.cap === "string" ? valueAt(g.cap) : g.cap;
+      const scale = cap ?? peak(g.id);
+      const r = v === null ? 0 : Math.min(1, v / Math.max(scale, 1e-9));
+      g.bar.style.width = `${r * 100}%`;
+      g.text.textContent = v === null ? "–" : cap !== null ? `${Math.round(v)}/${Math.round(cap)}` : String(Math.round(v));
+      g.row.classList.toggle("hot", cap !== null && r >= 0.9);
+    }
+    scrub.max = String(replay.duration);
+    scrub.value = String(t);
+    clock.textContent = `t = ${seconds(t)} s / ${seconds(replay.duration)} s${t < replay.warmUp ? " · warm-up" : ""}`;
+    playButton.textContent = playing ? "❚❚" : "▶";
+    playButton.setAttribute("aria-label", playing ? "Pause" : "Play");
+  }
+  function tick(now: number): void {
+    if (!playing || !replay) return;
+    t = Math.min(replay.duration, t + (((now - last) / 1000) * replay.duration * Number(speed.value)) / 10);
+    last = now;
+    if (t >= replay.duration) playing = false;
+    paint();
+    if (playing) requestAnimationFrame(tick);
+  }
+  function setPlaying(on: boolean): void {
+    playing = on && replay !== null;
+    if (playing) {
+      if (t >= replay!.duration) t = 0;
+      last = performance.now();
+      requestAnimationFrame(tick);
+    }
+    paint();
+  }
+  playButton.addEventListener("click", () => setPlaying(!playing));
+  scrub.addEventListener("input", () => {
+    t = Number(scrub.value);
+    paint();
+  });
+
   const pos = new Map<string, { x: number; y: number }>();
   let selected: string | null = null;
   let model: Model | null = null;
@@ -239,6 +323,12 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
     }
     canvas.replaceChildren();
     inspector.replaceChildren();
+    gauges = [];
+    if (replay && replay.source !== editor.value) {
+      replay = null; // the model changed since that run, so its replay no longer matches the diagram
+      playing = false;
+    }
+    paint();
     if (!model || (model.components !== undefined && !Array.isArray(model.components))) {
       model = null;
       check.className = "check bad";
@@ -275,6 +365,23 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
         node.classList.add("bad");
         node.title = own.join("\n");
         node.appendChild(el("span", "badge", "!"));
+      }
+      for (const id of Object.keys(replay?.values ?? {})) {
+        const key = id.slice(c.name.length + 1);
+        if (!id.startsWith(`${c.name}.`) || key.includes(".") || (key === "Concurrency" && c.type === "WorkerPool")) continue;
+        // Busy workers are shown against capacity (which an autoscaler may change); other gauges against their peak.
+        const cap = key !== "BusyWorkers" ? null : c.type === "WorkerPool" ? `${c.name}.Concurrency` : Number(c.inputs?.capacity ?? 1);
+        const row = el("div", "gauge");
+        const text = el("span", "gv");
+        const bar = el("i");
+        const track = el("span", "track");
+        track.appendChild(bar);
+        const head = el("div", "gh");
+        head.append(el("span", "", key.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase()), text);
+        row.append(head, track);
+        row.title = cap === null ? "Bar is relative to this output's peak in the run." : "Bar is busy workers / capacity.";
+        node.appendChild(row);
+        gauges.push({ id, cap, row, bar, text });
       }
       for (const l of byType.get(c.type)?.links ?? []) {
         const row = el("div", "port-row", l.key);
@@ -379,6 +486,7 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
     }
 
     requestAnimationFrame(drawEdges);
+    paint();
     const sel = comps.find((c) => c.name === selected);
     if (sel) inspect(sel, comps);
     else if (comps.length > 0)
@@ -498,6 +606,13 @@ export function mountDiagram(root: HTMLElement, editor: HTMLTextAreaElement): { 
     reset() {
       pos.clear();
       selected = null;
+    },
+    /** Show a run's replay; `source` is the model JSON it ran, so later edits drop the stale replay. */
+    play(playback, source) {
+      replay = { ...playback, source };
+      t = 0;
+      render();
+      setPlaying(!reduceMotion && !root.hidden);
     },
   };
 }
