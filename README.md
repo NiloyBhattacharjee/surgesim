@@ -197,7 +197,7 @@ prints the machine-readable form.
 | [`examples/diurnal-autoscaling-cost.json`](examples/diurnal-autoscaling-cost.json) | a compressed daily traffic cycle with an autoscaler held near 50% utilisation, showing provisioned cost versus backlog |
 | [`examples/stress/month-instance-m.json`](examples/stress/month-instance-m.json), [`-t.json`](examples/stress/month-instance-t.json) | a 30-day stress test (20 million requests, about 35 s per run): a general-purpose fleet versus a cheaper, slower burstable one under a daily/weekly cycle. Kept out of the top level because the test suite runs every example there |
 | [`examples/sdk/autoscaled-service.ts`](examples/sdk/autoscaled-service.ts) | the same system written with the TypeScript SDK |
-| [`examples/cloudformation/orders-stack.template.json`](examples/cloudformation/orders-stack.template.json) | a CDK-style template (SQS + DLQ + Lambda + ECS + autoscaling + API Gateway throttle) for `surgesim import` |
+| [`examples/cloudformation/orders-stack.template.json`](examples/cloudformation/orders-stack.template.json) | a CDK-style template (SQS + DLQ + Lambda + ECS + autoscaling + API Gateway throttle) for `surgesim import`; [`.yaml`](examples/cloudformation/orders-stack.template.yaml) is the same stack in YAML with short-form intrinsics |
 | [`examples/calibration/`](examples/calibration/README.md) | **synthetic** monitoring data with a known ground truth, to try `fit`, `fit-arrivals` and `calibrate` |
 
 ## Architecture
@@ -320,8 +320,7 @@ Not built yet:
   [docs/releasing.md](docs/releasing.md)).
 - Real-data calibration: the fitting and comparison tools have been exercised on synthetic data and on one small real
   program (two 10-minute runs), not on production traffic.
-- Importer: JSON templates only (no YAML), and only SQS, Lambda, ECS services, Application Auto Scaling target tracking
-  and API Gateway throttling.
+- Importer: only SQS, Lambda, ECS services, Application Auto Scaling target tracking and API Gateway throttling.
 - Components: no DynamoDB, SNS fan-out, load balancers, FIFO queues, batching, step scaling or multi-region.
 - Distributions are fitted one at a time from independent samples; there is no mixture model, expression language or
   richer unit system.

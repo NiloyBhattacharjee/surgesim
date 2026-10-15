@@ -409,10 +409,20 @@ describe("surgesim import (CloudFormation / CDK)", () => {
     expect(model.components.find((c: { name: string }) => c.name === "ApiService").inputs.concurrency).toBe(8); // 2 tasks x 4
   });
 
-  it("explains that YAML is unsupported, and where to find the JSON template", async () => {
-    const h = harness({ "stack.yaml": "AWSTemplateFormatVersion: '2010-09-09'\nResources:\n  Q:\n    Type: AWS::SQS::Queue\n" });
-    expect(await h.call(["import", "stack.yaml"])).toBe(EXIT_INVALID_MODEL);
-    expect(h.stderr.join("\n")).toContain("cdk.out");
+  it("imports a YAML template with short-form intrinsics to the same model as its JSON twin", async () => {
+    const yaml = readFileSync(join(examplesDir, "cloudformation", "orders-stack.template.yaml"), "utf8");
+    const h = harness({ "stack.yaml": yaml, "stack.json": template });
+    expect(await h.call(["import", "stack.yaml", "--out", "from-yaml.json"])).toBe(EXIT_OK);
+    expect(await h.call(["import", "stack.json", "--out", "from-json.json"])).toBe(EXIT_OK);
+    expect(h.fs.files.get("from-yaml.json")).toBe(h.fs.files.get("from-json.json"));
+  });
+
+  it("reports malformed YAML and JSON with the parser's message", async () => {
+    const h = harness({ "bad.yaml": "Resources:\n  Q: !NoSuchFunction x\n", "bad.json": '{"Resources": ' });
+    expect(await h.call(["import", "bad.yaml"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("NoSuchFunction");
+    expect(await h.call(["import", "bad.json"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("not valid JSON");
   });
 
   it("rejects non-templates, missing files, bad numbers and bad usage", async () => {

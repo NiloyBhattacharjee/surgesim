@@ -6,6 +6,11 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ## [Unreleased]
 
 ### Added
+- `surgesim import` reads YAML CloudFormation templates, including short-form intrinsics (`!Ref`, `!GetAtt`, `!Sub`,
+  `!Join`, ...), and imports them to the same model as the equivalent JSON template. `@surgesim/importer` exports
+  `parseTemplate`. ([#9](https://github.com/NiloyBhattacharjee/surgesim/issues/9))
+
+### Added
 - A drag-and-drop diagram editor in the browser demo: add components from a palette, link them by dragging between
   ports, and edit inputs in an inspector. It reads and writes the model JSON. See [docs/browser-demo.md](docs/browser-demo.md).
 - The demo's diagram replays a run: queue lengths, busy workers and other current-value outputs animate on the nodes
