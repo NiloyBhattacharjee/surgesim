@@ -57,6 +57,118 @@ export class ExactPercentileTracker implements PercentileTracker {
   }
 }
 
+/**
+ * Approximate tracker in constant memory: a merging t-digest (Dunning & Ertl, "Computing extremely accurate
+ * quantiles using t-digests", 2019) with the k2 scale function, which keeps centroids small in the tails so p99/p99.9
+ * stay accurate. Percentiles use the same convention as {@link ExactPercentileTracker} (rank p/100 * (n - 1),
+ * linear interpolation), and while every centroid holds one sample the answers are identical to it.
+ * Count, mean, min and max are exact.
+ */
+export class StreamingPercentileTracker implements PercentileTracker {
+  private means: number[] = [];
+  private weights: number[] = [];
+  private buffer: number[] = [];
+  private n = 0;
+  private sum = 0;
+  private min = Number.POSITIVE_INFINITY;
+  private max = Number.NEGATIVE_INFINITY;
+
+  /** @param compression the t-digest delta: fewer than this many centroids are kept; larger is more accurate. */
+  constructor(private readonly compression = 200) {}
+
+  add(value: number): void {
+    this.buffer.push(value);
+    this.n++;
+    this.sum += value;
+    if (value < this.min) this.min = value;
+    if (value > this.max) this.max = value;
+    if (this.buffer.length >= 10 * this.compression) this.merge();
+  }
+
+  get count(): number {
+    return this.n;
+  }
+
+  mean(): number {
+    return this.n === 0 ? NaN : this.sum / this.n;
+  }
+
+  percentile(p: number): number {
+    const n = this.n;
+    if (n === 0 || !(p >= 0 && p <= 100)) return NaN;
+    this.merge();
+    const rank = (p / 100) * (n - 1);
+    // A centroid of weight w whose samples start at 0-based rank s is centred at rank s + (w - 1) / 2.
+    // Interpolate between centres, and between the extreme centres and the exact min (rank 0) / max (rank n - 1).
+    let prevRank = 0;
+    let prevValue = this.min;
+    let start = 0;
+    for (let i = 0; i < this.means.length; i++) {
+      const w = this.weights[i] as number;
+      const centre = start + (w - 1) / 2;
+      const m = this.means[i] as number;
+      if (rank <= centre) return between(prevRank, prevValue, centre, m, rank);
+      prevRank = centre;
+      prevValue = m;
+      start += w;
+    }
+    return between(prevRank, prevValue, n - 1, this.max, rank);
+  }
+
+  reset(): void {
+    this.means = [];
+    this.weights = [];
+    this.buffer = [];
+    this.n = 0;
+    this.sum = 0;
+    this.min = Number.POSITIVE_INFINITY;
+    this.max = Number.NEGATIVE_INFINITY;
+  }
+
+  /** Fold the buffer into the centroids: sort everything by mean, then merge neighbours while the k2 size bound allows. */
+  private merge(): void {
+    if (this.buffer.length === 0) return;
+    const items: [number, number][] = this.means.map((m, i) => [m, this.weights[i] as number]);
+    for (const v of this.buffer) items.push([v, 1]);
+    items.sort((a, b) => a[0] - b[0]);
+    this.buffer = [];
+    const total = this.n;
+    const d = this.compression;
+    // k2(q) = d / Z * ln(q / (1 - q)), Z = 4 ln(n / d) + 24; a centroid may span at most one unit of k.
+    // Centroid size goes as q(1 - q), so the tails stay fine-grained.
+    const scale = d / (4 * Math.log(Math.max(total / d, 1)) + 24);
+    const qLimit = (q: number): number => 1 / (1 + Math.exp(-(Math.log(q / (1 - q)) + 1 / scale)));
+    const means: number[] = [];
+    const weights: number[] = [];
+    let [curMean, curWeight] = items[0] as [number, number];
+    let soFar = 0;
+    let limit = total * qLimit(0);
+    for (let i = 1; i < items.length; i++) {
+      const [m, w] = items[i] as [number, number];
+      if (soFar + curWeight + w <= limit) {
+        curWeight += w;
+        curMean += ((m - curMean) * w) / curWeight;
+      } else {
+        means.push(curMean);
+        weights.push(curWeight);
+        soFar += curWeight;
+        limit = total * qLimit(soFar / total);
+        curMean = m;
+        curWeight = w;
+      }
+    }
+    means.push(curMean);
+    weights.push(curWeight);
+    this.means = means;
+    this.weights = weights;
+  }
+}
+
+/** Linear interpolation from (r0, v0) to (r1, v1) at r; exactly v1 at r1 (no cancellation error). */
+function between(r0: number, v0: number, r1: number, v1: number, r: number): number {
+  return r === r1 ? v1 : v0 + ((v1 - v0) * (r - r0)) / (r1 - r0);
+}
+
 /** Running count/mean/min/max of observations (no storage). */
 export class Tally {
   count = 0;

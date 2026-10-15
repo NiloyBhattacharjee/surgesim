@@ -1,5 +1,5 @@
 import { LinkedComponent, type ComponentInit, type MovingEntity, type SimContext } from "../model/index.js";
-import { ExactPercentileTracker, type PercentileTracker } from "../stats/index.js";
+import { ExactPercentileTracker, StreamingPercentileTracker, type PercentileTracker } from "../stats/index.js";
 import type { ComponentSchema } from "../schema/index.js";
 
 /** Consumes entities and records each one's time in system (now - creation time). */
@@ -8,7 +8,9 @@ export class EntitySink extends LinkedComponent {
     type: "EntitySink",
     description: "Consumes entities and records their time in system.",
     roles: ["receiver"],
-    inputs: [],
+    inputs: [
+      { key: "percentiles", type: "enum", unit: "dimensionless", options: ["exact", "streaming"], default: "exact", required: false, description: "exact stores every time in system; streaming uses a t-digest in constant memory (approximate p50/p95/p99) for long or high-rate runs." },
+    ],
     links: [],
     outputs: [
       { key: "count", unit: "dimensionless", description: "Entities received.", get: (s) => s.times.count },
@@ -19,11 +21,11 @@ export class EntitySink extends LinkedComponent {
     ],
   };
 
-  /** Swappable for an approximate streaming sketch later. */
-  private readonly times: PercentileTracker = new ExactPercentileTracker();
+  private readonly times: PercentileTracker;
 
   constructor(ctx: SimContext, init: ComponentInit) {
     super(ctx, init, "Idle");
+    this.times = init.inputs["percentiles"] === "streaming" ? new StreamingPercentileTracker() : new ExactPercentileTracker();
   }
 
   override addEntity(entity: MovingEntity): void {

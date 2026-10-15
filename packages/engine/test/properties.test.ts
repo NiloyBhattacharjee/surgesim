@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   ExactPercentileTracker,
+  StreamingPercentileTracker,
   ExponentialSampler,
   Kernel,
   LognormalSampler,
@@ -246,7 +247,7 @@ describe("statistics", () => {
   it("percentiles are monotone, bounded by min and max, and p0/p100 are the extremes", () => {
     assertProperty(
       fc.property(fc.array(fc.double({ min: -1e6, max: 1e6, noNaN: true }), { minLength: 1, maxLength: 120 }), (xs) => {
-        const t = new ExactPercentileTracker();
+        for (const t of [new ExactPercentileTracker(), new StreamingPercentileTracker(8)]) {
         xs.forEach((x) => t.add(x));
         const lo = Math.min(...xs);
         const hi = Math.max(...xs);
@@ -261,6 +262,7 @@ describe("statistics", () => {
           prev = v;
         }
         expect(t.mean()).toBeCloseTo(xs.reduce((a, b) => a + b, 0) / xs.length, 6);
+        }
       }),
     );
   });

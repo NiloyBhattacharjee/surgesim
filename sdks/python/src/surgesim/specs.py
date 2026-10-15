@@ -21,7 +21,7 @@ SPECS = {
         "outputs": ["Utilisation", "AverageBusyWorkers", "BusyWorkers"],
     },
     "EntitySink": {
-        "inputs": [],
+        "inputs": ["percentiles"],
         "links": [],
         "outputs": ["count", "mean", "p50", "p95", "p99"],
     },
