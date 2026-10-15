@@ -35,7 +35,7 @@ const USAGE = `Usage:
   surgesim run <model> [--seed N] [--replications N] [--assert EXPR]... [--html report.html] [--timeseries out.csv] [--json out.json]
   surgesim report <results.json|model> --html report.html     Render an HTML report from saved results
   surgesim compare <a> <b> --html compare.html                Compare two runs (results files or models)
-  surgesim import <template.json> [--out model.json] [--rate N] [--service-time MEAN] [--entry ID]...
+  surgesim import <template.json|.yaml> [--out model.json] [--rate N] [--service-time MEAN] [--entry ID]...
                             Convert a CloudFormation / CDK template (cdk.out/*.template.json) to a model
   surgesim fit <data.csv> [--column NAME] [--scale K]       Fit a distribution to measured durations
   surgesim fit-arrivals <timestamps.csv> --window S         Fit an arrival rate profile from request timestamps
@@ -165,7 +165,7 @@ ${HINT}`);
 
   if (command === "import") {
     if (modelPath === undefined || positionals.length > 2) {
-      logger.error(`error: expected "surgesim import <template.json> [--out model.json]"
+      logger.error(`error: expected "surgesim import <template.json|.yaml> [--out model.json]"
 ${HINT}`);
       return EXIT_USAGE;
     }

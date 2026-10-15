@@ -33,7 +33,8 @@
   ],
   "sideEffects": false,
   "dependencies": {
-    "@surgesim/sdk": "workspace:*"
+    "@surgesim/sdk": "workspace:*",
+    "yaml": "^2.9.1"
   },
   "publishConfig": {
     "access": "public"

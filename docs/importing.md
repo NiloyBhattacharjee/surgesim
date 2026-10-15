@@ -6,9 +6,20 @@ surgesim import cdk.out/OrdersStack.template.json --out model.json --rate 50 --s
 surgesim run model.json --html report.html
 ```
 
-`surgesim import` reads a CloudFormation **JSON** template (what CDK writes to `cdk.out/*.template.json`; YAML templates
-are not supported, convert with `cfn-flip`) and produces a model in the [JSON format](model-format.md). It never emits a
-model the engine would reject.
+`surgesim import` reads a CloudFormation template, either **JSON** (what CDK writes to `cdk.out/*.template.json`) or
+**YAML** (hand-written templates, SAM-style stacks), and produces a model in the [JSON format](model-format.md). It never
+emits a model the engine would reject.
+
+```bash
+surgesim import stack.yaml --out model.json
+```
+
+YAML short-form intrinsics (`!Ref`, `!GetAtt Queue.Arn` or `!GetAtt [Queue, Arn]`, `!Sub`, `!Join`, `!If`, `!Select`,
+`!FindInMap`, `!Condition` and the other `!Fn` forms) are read as their JSON long forms, so a YAML template imports to
+exactly the model its JSON equivalent does ([`examples/cloudformation/orders-stack.template.yaml`](../examples/cloudformation/orders-stack.template.yaml)
+is the YAML twin of the JSON example). An unknown `!Tag`, a duplicate key or malformed YAML is an error, never guessed
+at. The YAML parser lives in `@surgesim/importer` (it uses the `yaml` package); the engine stays dependency-free.
+Programs can call `parseTemplate(text)` from `@surgesim/importer` directly.
 
 ## What is modelled
 

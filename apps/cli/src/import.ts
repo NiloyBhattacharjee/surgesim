@@ -1,6 +1,6 @@
 import { loadModel } from "@surgesim/engine";
 import type { FileStore, Logger } from "@surgesim/platform";
-import { importCloudFormation, type ImportOptions } from "@surgesim/importer";
+import { importCloudFormation, parseTemplate, type ImportOptions } from "@surgesim/importer";
 import { dist } from "@surgesim/sdk";
 import { EXIT_INVALID_MODEL, EXIT_OK, EXIT_USAGE } from "./exit.js";
 import { formatErrors } from "./source.js";
@@ -19,7 +19,7 @@ export interface ImportArgs {
   entry: string[];
 }
 
-/** `surgesim import <template.json>`: convert a CloudFormation / CDK-synthesized template to a model. */
+/** `surgesim import <template>`: convert a CloudFormation (JSON or YAML) / CDK-synthesized template to a model. */
 export async function runImport(path: string, args: ImportArgs, host: { fs: FileStore; logger: Logger }): Promise<number> {
   const { fs, logger } = host;
   let text: string;
@@ -29,17 +29,12 @@ export async function runImport(path: string, args: ImportArgs, host: { fs: File
     logger.error(`error: cannot read ${path}: ${(e as Error).message}`);
     return EXIT_USAGE;
   }
-  let template: unknown;
-  try {
-    template = JSON.parse(text);
-  } catch (e) {
-    const yaml = /\.ya?ml$/i.test(path) || /^\s*(AWSTemplateFormatVersion|Resources|Transform)\s*:/m.test(text);
-    logger.error(
-      `error: ${path} is not valid JSON: ${(e as Error).message}` +
-        (yaml ? "\n  YAML templates are not supported. Use the JSON template that CDK writes to cdk.out/<Stack>.template.json,\n  or convert with `cfn-flip`." : ""),
-    );
+  const parsed = parseTemplate(text);
+  if (!parsed.ok) {
+    logger.error(`error: ${path}: ${parsed.message}`);
     return EXIT_INVALID_MODEL;
   }
+  const template = parsed.template;
 
   const options: ImportOptions = {
     ...(args.name !== undefined ? { name: args.name } : {}),

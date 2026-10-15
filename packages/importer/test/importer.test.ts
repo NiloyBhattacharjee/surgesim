@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { loadModel, runModel } from "@surgesim/engine";
 import { dist } from "@surgesim/sdk";
-import { importCloudFormation, type ImportOptions } from "../src/index.js";
+import { importCloudFormation, parseTemplate, type ImportOptions } from "../src/index.js";
 
 const stack = (): Record<string, any> =>
   JSON.parse(readFileSync(fileURLToPath(new URL("../../../examples/cloudformation/orders-stack.template.json", import.meta.url)), "utf8"));
@@ -201,5 +201,64 @@ describe("honest about what it cannot represent", () => {
       expect(r.ok).toBe(false);
       expect(r.ok ? [] : r.errors[0]!.message).toContain("Resources");
     }
+  });
+});
+
+describe("YAML templates (parseTemplate)", () => {
+  const example = (ext: string): string =>
+    readFileSync(fileURLToPath(new URL(`../../../examples/cloudformation/orders-stack.template.${ext}`, import.meta.url)), "utf8");
+  const parsed = (text: string): unknown => {
+    const r = parseTemplate(text);
+    if (!r.ok) throw new Error(r.message);
+    return r.template;
+  };
+
+  it("the YAML example parses to exactly the JSON example, so both import to the same model", () => {
+    const yaml = parsed(example("yaml"));
+    expect(yaml).toEqual(stack());
+    expect(importCloudFormation(yaml)).toEqual(importCloudFormation(stack()));
+  });
+
+  it("turns every short-form intrinsic into its JSON long form", () => {
+    const t = parsed(
+      [
+        "A: !Ref Param",
+        "B: !GetAtt Queue.Arn",
+        "C: !GetAtt [Queue, QueueName]",
+        "D: !GetAtt Bucket.Endpoint.Port",
+        'E: !Join ["", ["arn:", !Ref AWS::Partition, !Sub "${AWS::Region}"]]',
+        "F: !Sub",
+        '  - "q-${Name}"',
+        "  - { Name: !Ref Param }",
+        "G: !If [IsProd, 5, !Ref AWS::NoValue]",
+        'H: !Select [0, !GetAZs ""]',
+        "I: !Condition IsProd",
+        "J: !FindInMap [Map, !Ref Env, Size]",
+      ].join("\n"),
+    );
+    expect(t).toEqual({
+      A: { Ref: "Param" },
+      B: { "Fn::GetAtt": ["Queue", "Arn"] },
+      C: { "Fn::GetAtt": ["Queue", "QueueName"] },
+      D: { "Fn::GetAtt": ["Bucket", "Endpoint.Port"] },
+      E: { "Fn::Join": ["", ["arn:", { Ref: "AWS::Partition" }, { "Fn::Sub": "${AWS::Region}" }]] },
+      F: { "Fn::Sub": ["q-${Name}", { Name: { Ref: "Param" } }] },
+      G: { "Fn::If": ["IsProd", 5, { Ref: "AWS::NoValue" }] },
+      H: { "Fn::Select": [0, { "Fn::GetAZs": "" }] },
+      I: { Condition: "IsProd" },
+      J: { "Fn::FindInMap": ["Map", { Ref: "Env" }, "Size"] },
+    });
+  });
+
+  it("reports malformed YAML and duplicate keys as errors instead of throwing", () => {
+    for (const text of ["Resources: [1, 2\n", "A: 1\nA: 2\n", "A: !NoSuchFunction x\n"]) {
+      const r = parseTemplate(text);
+      expect(r.ok, text).toBe(false);
+      if (!r.ok) expect(r.message.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("still reads JSON", () => {
+    expect(parsed('{"Resources": {}}')).toEqual({ Resources: {} });
   });
 });
