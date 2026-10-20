@@ -61,6 +61,11 @@ export const SPECS = {
     links: ["target"],
     outputs: ["ScaleOuts", "ScaleIns", "DesiredConcurrency"],
   },
+  Topic: {
+    inputs: ["filterProbabilities"],
+    links: ["subscribers"],
+    outputs: ["NumberPublished", "NumberDelivered", "NumberFiltered"],
+  },
 } as const;
 
 type Spec = typeof SPECS;
@@ -158,4 +163,11 @@ export interface AutoscalerProps extends Common {
   scaleDownCooldown?: number;
   /** The WorkerPool to scale. */
   target: Ref;
+}
+
+export interface TopicProps extends Common {
+  /** Each published entity is copied to every subscriber, in order. */
+  subscribers: Ref[];
+  /** One probability per subscriber that a copy passes its filter policy (default: all pass). */
+  filterProbabilities?: number[];
 }

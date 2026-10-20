@@ -39,6 +39,7 @@ export class Simulation {
       kernel,
       rng: (streamId) => new Rng(seed, streamId),
       createEntity: (): MovingEntity => ({ id: nextId++, createdAt: kernel.currentTick, attributes: {} }),
+      copyEntity: (e): MovingEntity => ({ id: nextId++, createdAt: e.createdAt, attributes: { ...e.attributes } }),
     };
 
     for (const def of model.components) {
@@ -48,8 +49,8 @@ export class Simulation {
     }
     for (const def of model.components) {
       const c = this.components.get(def.name) as LinkedComponent;
-      for (const [key, target] of Object.entries(def.links)) {
-        c.setLink(key, this.components.get(target) as LinkedComponent);
+      for (const [key, targets] of Object.entries(def.links)) {
+        for (const target of [targets].flat()) c.setLink(key, this.components.get(target) as LinkedComponent);
       }
     }
     for (const c of this.components.values()) c.start();

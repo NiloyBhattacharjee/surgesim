@@ -68,6 +68,16 @@ function checkValue(spec: InputSpec, v: unknown): string | null {
       }
       return null;
     }
+    case "numberList": {
+      if (!Array.isArray(v) || v.length === 0) return "must be a non-empty array of numbers";
+      for (let i = 0; i < v.length; i++) {
+        const x: unknown = v[i];
+        if (!finite(x)) return `entry ${i} must be a finite number`;
+        const bad = checkBounds(spec, x);
+        if (bad) return `entry ${i} ${bad}`;
+      }
+      return null;
+    }
   }
 }
 

@@ -52,8 +52,9 @@ Running `.ts` directly needs Node 22.18+; on older Node, compile to `.js` first 
 - `new Model(name, { duration, warmUp?, seed?, replications?, ticksPerSecond?, description? })` is the model
   header and `settings`.
 - Each builder method (`entityGenerator`, `queue`, `server`, `entitySink`, `messageQueue`, `workerPool`,
-  `retryPolicy`, `rateLimiter`, `autoscaler`) adds one component. Its props are the component's `inputs` **and**
+  `retryPolicy`, `rateLimiter`, `autoscaler`, `topic`) adds one component. Its props are the component's `inputs` **and**
   its `links` in one object: a prop whose value is another component becomes a link. Anything else is an input.
+  A list link takes an array of components: `model.topic("orders", { subscribers: [billing, audit] })`.
 - `model.custom(type, name, inputs, links)` adds a component of any type, for custom engine registries.
 - Times are seconds, rates are per second, as everywhere else. `time.ms/minutes/hours` and `dist.*` are
   helpers that return plain seconds and plain distribution objects.

@@ -111,26 +111,38 @@ export function loadModel(json: unknown, registry: ComponentRegistry = createDef
         if (!schema.links.some((l) => l.key === k)) lerr(k, `unknown link for ${schema.type}`);
       }
       for (const spec of schema.links) {
-        const target = given[spec.key];
-        if (target === undefined || target === null) {
+        const value = given[spec.key];
+        if (value === undefined || value === null) {
           if (spec.required) lerr(spec.key, "required link is missing");
           continue;
         }
-        if (typeof target !== "string") {
-          lerr(spec.key, "must be a component name");
+        if (spec.multiple ? !Array.isArray(value) || value.length === 0 : typeof value !== "string") {
+          lerr(spec.key, spec.multiple ? "must be a non-empty list of component names" : "must be a component name");
           continue;
         }
-        const targetDef = byName.get(target);
-        if (!targetDef) {
-          lerr(spec.key, `no component named "${target}"`);
-          continue;
+        const targets: unknown[] = spec.multiple ? (value as unknown[]) : [value];
+        const problem = (target: unknown): string | null => {
+          if (typeof target !== "string") return "must be a list of component names";
+          const targetDef = byName.get(target);
+          if (!targetDef) return `no component named "${target}"`;
+          const targetSchema = (registry.get(targetDef.type) as NonNullable<ReturnType<ComponentRegistry["get"]>>).schema;
+          if (!targetSchema.roles.includes(spec.accepts)) {
+            return `"${target}" is a ${targetDef.type}, which cannot be used here (needs a component with role "${spec.accepts}")`;
+          }
+          return null;
+        };
+        const problems = targets.map(problem).filter((p): p is string => p !== null);
+        for (const p of problems) lerr(spec.key, p);
+        const ok = problems.length === 0;
+        if (ok && new Set(targets).size < targets.length) lerr(spec.key, "lists the same component twice");
+        else if (ok) def.links[spec.key] = spec.multiple ? (targets as string[]) : (value as string);
+      }
+      for (const input of schema.inputs) {
+        const list = def.inputs[input.key];
+        const targets = input.lengthOf === undefined ? undefined : def.links[input.lengthOf];
+        if (Array.isArray(list) && Array.isArray(targets) && list.length !== targets.length) {
+          lerr(input.key, `must have one entry per ${input.lengthOf} target (${targets.length}), got ${list.length}`);
         }
-        const targetSchema = (registry.get(targetDef.type) as NonNullable<ReturnType<ComponentRegistry["get"]>>).schema;
-        if (!targetSchema.roles.includes(spec.accepts)) {
-          lerr(spec.key, `"${target}" is a ${targetDef.type}, which cannot be used here (needs a component with role "${spec.accepts}")`);
-          continue;
-        }
-        def.links[spec.key] = target;
       }
     }
 

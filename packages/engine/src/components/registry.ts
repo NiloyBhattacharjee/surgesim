@@ -8,6 +8,7 @@ import { RateLimiter } from "./rate-limiter.js";
 import { RetryPolicy } from "./retry-policy.js";
 import { Server } from "./server.js";
 import { EntitySink } from "./sink.js";
+import { Topic } from "./topic.js";
 import { WorkerPool } from "./worker-pool.js";
 
 /** A component class: a static schema plus a constructor. */
@@ -51,5 +52,6 @@ export function createDefaultRegistry(): ComponentRegistry {
     .register(WorkerPool)
     .register(RetryPolicy)
     .register(RateLimiter)
-    .register(Autoscaler);
+    .register(Autoscaler)
+    .register(Topic);
 }

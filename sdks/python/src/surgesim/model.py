@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from .specs import SPECS
 
@@ -33,6 +33,11 @@ def _camel(name: str) -> str:
     return head + "".join(part[:1].upper() + part[1:] for part in rest)
 
 
+def _targets(value: Any) -> List[Any]:
+    """A link's targets: a list link as given, a single link as a one-element list."""
+    return list(value) if isinstance(value, (list, tuple)) else [value]
+
+
 class Component:
     """A component being authored. Create these with the ``Model`` builder methods."""
 
@@ -41,12 +46,13 @@ class Component:
         self.name = name
         self.inputs = inputs
         self.stream = stream
-        self._links: Dict[str, "Component"] = {}
+        self._links: Dict[str, Union["Component", List["Component"]]] = {}
 
-    def link(self, key: str, target: "Component") -> "Component":
+    def link(self, key: str, target: Union["Component", List["Component"]]) -> "Component":
         """Point a link at another component. Use this for forward references and cycles (a pool's
-        ``on_throttle`` back to the retry policy that feeds it), which cannot be passed at creation."""
-        self._links[_camel(key)] = target
+        ``on_throttle`` back to the retry policy that feeds it), which cannot be passed at creation.
+        Pass a list for a link that takes several targets (a topic's ``subscribers``)."""
+        self._links[_camel(key)] = list(target) if isinstance(target, (list, tuple)) else target
         return self
 
     def output(self, key: str) -> str:
@@ -64,7 +70,7 @@ class Component:
         if inputs:
             out["inputs"] = inputs
         if self._links:
-            out["links"] = {k: target.name for k, target in self._links.items()}
+            out["links"] = {k: [t.name for t in v] if isinstance(v, list) else v.name for k, v in self._links.items()}
         if self.stream is not None:
             out["stream"] = self.stream
         return out
@@ -112,7 +118,7 @@ class Model:
         if not isinstance(name, str) or name.strip() == "":
             problems.append({"component": str(name), "key": "name", "message": "must be a non-empty string"})
         inputs: Dict[str, Any] = {}
-        links: List[Tuple[str, Component]] = []
+        links: List[Tuple[str, Union[Component, List[Component]]]] = []
         stream: Optional[str] = None
         for raw_key, value in props.items():
             if value is None:
@@ -121,7 +127,8 @@ class Model:
             if key == "stream":
                 stream = value
             elif key in spec["links"]:
-                if not isinstance(value, Component):
+                targets = _targets(value)
+                if not targets or not all(isinstance(t, Component) for t in targets):
                     problems.append({"component": name, "key": key, "message": "a link must be another component"})
                 else:
                     links.append((key, value))
@@ -178,6 +185,11 @@ class Model:
         """Target-tracking autoscaler for a WorkerPool."""
         return self._make("Autoscaler", name, props)
 
+    def topic(self, name: str, **props: Any) -> Component:
+        """Pub/sub fan-out (SNS-style): copies each entity to every component in ``subscribers=[...]``,
+        each passing its filter with the matching ``filter_probabilities`` entry (default: all pass)."""
+        return self._make("Topic", name, props)
+
     def custom(self, type: str, name: str, inputs: Optional[Dict[str, Any]] = None, links: Optional[Dict[str, Component]] = None) -> Component:  # noqa: A002
         """Add a component of any type, including ones from a custom engine registry."""
         if name in self._components:
@@ -228,9 +240,10 @@ class Model:
         component that is not part of this model."""
         problems: List[Dict[str, Optional[str]]] = []
         for c in self._components.values():
-            for key, target in c._links.items():
-                if self._components.get(target.name) is not target:
-                    problems.append({"component": c.name, "key": key, "message": f'links to "{target.name}", which is not a component of this model'})
+            for key, value in c._links.items():
+                for target in _targets(value):
+                    if self._components.get(target.name) is not target:
+                        problems.append({"component": c.name, "key": key, "message": f'links to "{target.name}", which is not a component of this model'})
         if problems:
             raise ModelBuildError(problems)
         settings = dict(self._settings)

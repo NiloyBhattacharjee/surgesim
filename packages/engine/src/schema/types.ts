@@ -13,7 +13,8 @@ export type InputType =
   | "string"
   | "enum" // one of `options`
   | "sampler" // a constant or a distribution spec, resolved to a SampleProvider
-  | "rateProfile"; // [[startSeconds, ratePerSecond], ...]
+  | "rateProfile" // [[startSeconds, ratePerSecond], ...]
+  | "numberList"; // [number, ...], each within min/max
 
 /** Declares one input of a component. Pure data. */
 export interface InputSpec {
@@ -32,6 +33,8 @@ export interface InputSpec {
   options?: readonly string[];
   /** Input is additionally required when another input has the given value. */
   requiredWhen?: { input: string; equals: unknown };
+  /** For a `numberList`: the key of a `multiple` link it must have one entry per target of. */
+  lengthOf?: string;
 }
 
 /** Declares one output (statistic) of a component. Pure data except for the getter. */
@@ -52,6 +55,8 @@ export interface LinkSpec {
   required: boolean;
   /** Role the target component must have (see {@link ComponentSchema.roles}). */
   accepts: string;
+  /** The link names a non-empty list of targets instead of one (e.g. a topic's subscribers). */
+  multiple?: boolean;
 }
 
 /** The schema of a component class: its inputs, links and outputs. */

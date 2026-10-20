@@ -100,6 +100,15 @@ class Building(unittest.TestCase):
         retry.link("next", pool)
         self.assertEqual(m.to_dict()["components"][1]["links"], {"next": "pool"})
 
+    def test_topic_subscribers_compile_to_a_list_of_names(self):
+        m = Model("t", duration=1)
+        a, b = m.entity_sink("a"), m.entity_sink("b")
+        topic = m.topic("topic", subscribers=[a, b], filter_probabilities=[1, 0.5])
+        self.assertEqual(
+            topic.to_dict(),
+            {"type": "Topic", "name": "topic", "inputs": {"filterProbabilities": [1, 0.5]}, "links": {"subscribers": ["a", "b"]}},
+        )
+
     def test_custom_components(self):
         m = Model("t", duration=1)
         sink = m.entity_sink("sink")

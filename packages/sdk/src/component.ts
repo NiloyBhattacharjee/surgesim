@@ -21,7 +21,7 @@ export interface ComponentJson {
   type: string;
   name: string;
   inputs?: Record<string, unknown>;
-  links?: Record<string, string>;
+  links?: Record<string, string | string[]>;
   stream?: string;
 }
 
@@ -33,7 +33,7 @@ export interface ComponentJson {
  */
 export class Component<Out extends string = string> {
   /** @internal */
-  readonly links = new Map<string, Component<string>>();
+  readonly links = new Map<string, Component<string> | Component<string>[]>();
 
   constructor(
     readonly type: string,
@@ -45,8 +45,9 @@ export class Component<Out extends string = string> {
   /**
    * Point a link at another component. Use this for forward references and cycles (a pool's
    * `onThrottle` back to the retry policy that feeds it), which cannot be passed at creation.
+   * Pass a list for a link that takes several targets (a topic's `subscribers`).
    */
-  link(key: string, target: Component<string>): this {
+  link(key: string, target: Component<string> | Component<string>[]): this {
     this.links.set(key, target);
     return this;
   }
@@ -59,7 +60,7 @@ export class Component<Out extends string = string> {
   /** @internal */
   toJSON(): ComponentJson {
     const inputs = Object.fromEntries(Object.entries(this.inputs).filter(([, v]) => v !== undefined));
-    const links = Object.fromEntries([...this.links].map(([k, target]) => [k, target.name]));
+    const links = Object.fromEntries([...this.links].map(([k, t]) => [k, Array.isArray(t) ? t.map((x) => x.name) : t.name]));
     return {
       type: this.type,
       name: this.name,

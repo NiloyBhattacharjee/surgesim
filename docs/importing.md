@@ -31,10 +31,11 @@ Programs can call `parseTemplate(text)` from `@surgesim/importer` directly.
 | `AWS::ECS::Service` | `WorkerPool` | `DesiredCount` × requests per task |
 | `AWS::ApplicationAutoScaling::ScalableTarget` + target-tracking `ScalingPolicy` | `Autoscaler` | `MinCapacity`, `MaxCapacity`, `TargetValue`, `ScaleInCooldown` |
 | `AWS::ApiGateway::UsagePlan` `Throttle`, `Stage` `MethodSettings` | `RateLimiter` in front of every entry point | `RateLimit`, `BurstLimit` |
+| `AWS::SNS::Topic` + `AWS::SNS::Subscription` | `Topic` | `sqs` and `lambda` subscriptions (inline `Subscription` or separate resources) become its `subscribers`; subscribed queues and functions are fed by the topic, not by their own traffic |
 
 Intrinsics are followed where it matters: `Ref` to a parameter with a `Default`, `Fn::GetAtt`, `Fn::Join` and `Fn::Sub` (to
 find which resource is meant). CDK's hashed logical ids (`OrdersQueue1A2B3C4D`) become readable names (`OrdersQueue`);
-a literal `QueueName` / `FunctionName` wins.
+a literal `QueueName` / `FunctionName` / `TopicName` wins.
 
 ## What the template cannot tell you, so you must
 
@@ -48,7 +49,7 @@ are exactly what a simulation needs. The importer does not hide this: every numb
 | `--service-time MEAN` | mean seconds per request (exponential) | 0.2 |
 | `--cold-start S` | cold start seconds for Lambda | none |
 | `--concurrency-per-task N` | requests one ECS task handles at once | 10 |
-| `--entry ID` | where traffic arrives (logical id or name; repeatable) | queues that are not dead-letter targets, plus functions and services with no queue trigger |
+| `--entry ID` | where traffic arrives (logical id or name; repeatable) | topics, queues that are neither dead-letter targets nor topic subscribers, plus functions and services with no queue trigger or topic subscription |
 | `--duration S`, `--seed N`, `--replications N`, `--name TEXT` | run settings | 600 s, 1, 5 |
 
 Treat the result as a **starting skeleton**: confirm the traffic and service times with real numbers (from load tests or
@@ -59,6 +60,8 @@ retries), edit the model, or build it with the [SDK](sdk.md) from the imported J
 
 Unsupported resources are listed under **Not modelled (ignored)** (IAM roles and CDK metadata are skipped quietly).
 Within supported resources, anything that cannot be represented raises a **Warning**: FIFO ordering and deduplication,
+SNS filter policies (every message is delivered; set the topic's `filterProbabilities`), subscription protocols other than
+`sqs` and `lambda`,
 `DelaySeconds`, `BatchSize` greater than 1 (modelled as one message per invocation), step-scaling policies (a 60%
 target-tracking autoscaler is assumed instead), a dead-letter queue defined outside the template, values that could not be
 resolved to numbers. A template with no entry point yields a warning that the model has no traffic.

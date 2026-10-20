@@ -145,6 +145,25 @@ describe("authoring errors are structured, not bare strings", () => {
     expect((error as ModelBuildError).problems[0]).toMatchObject({ component: "gen", key: "next" });
   });
 
+  it("a topic's subscribers compile to a list of names and run as a fan-out", () => {
+    const m = new Model("t", { duration: 10 });
+    const a = m.entitySink("a");
+    const b = m.entitySink("b");
+    const topic = m.topic("topic", { subscribers: [a, b], filterProbabilities: [1, 0] });
+    m.entityGenerator("gen", { interArrivalTime: 1, maxNumber: 3, next: topic });
+    const json = m.toJSON();
+    expect(json.components.find((c) => c.name === "topic")).toEqual({
+      type: "Topic",
+      name: "topic",
+      inputs: { filterProbabilities: [1, 0] },
+      links: { subscribers: ["a", "b"] },
+    });
+    const loaded = loadModel(json);
+    if (!loaded.ok) throw new Error(JSON.stringify(loaded.errors));
+    const count = (id: string) => runModel(loaded.model).outputs.find((o) => o.id === id)?.mean;
+    expect([count("a.count"), count("b.count")]).toEqual([3, 0]);
+  });
+
   it("semantic mistakes are left to the engine's loader, which reports them structurally", () => {
     const m = new Model("t", { duration: 10 });
     m.workerPool("pool", { concurrency: 0, serviceTime: 1 });

@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "name": "SNS fan-out: one slow subscriber backs up without slowing the others",
+  "description": "Orders arrive at 20/s on a topic that fans out to two SQS queues. Billing gets every order and has 10 workers at 0.2 s (40% busy). Audit's filter policy matches a quarter of orders (5/s) and it has 3 workers at a mean 0.5 s (about 83% busy), so its queue and latency grow (audited.p95 about 3.4 s) while billing stays fast (billed.p95 0.2 s). Each copy keeps the order's creation time, so both sinks measure end-to-end latency.",
+  "settings": { "duration": 600, "warmUp": 60, "seed": 3, "replications": 5, "timeSeries": { "interval": 10, "outputs": ["billing.Backlog", "audit.Backlog"] } },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "orders",
+      "inputs": { "interArrivalTime": { "dist": "exponential", "mean": 0.05 } },
+      "links": { "next": "order-events" }
+    },
+    {
+      "type": "Topic",
+      "name": "order-events",
+      "inputs": { "filterProbabilities": [1, 0.25] },
+      "links": { "subscribers": ["billing", "audit"] }
+    },
+    { "type": "MessageQueue", "name": "billing", "inputs": { "visibilityTimeout": 30 } },
+    { "type": "MessageQueue", "name": "audit", "inputs": { "visibilityTimeout": 30 } },
+    {
+      "type": "WorkerPool",
+      "name": "billing-fn",
+      "inputs": { "concurrency": 10, "serviceTime": 0.2 },
+      "links": { "queue": "billing", "next": "billed" }
+    },
+    {
+      "type": "WorkerPool",
+      "name": "audit-fn",
+      "inputs": { "concurrency": 3, "serviceTime": { "dist": "exponential", "mean": 0.5 } },
+      "links": { "queue": "audit", "next": "audited" }
+    },
+    { "type": "EntitySink", "name": "billed" },
+    { "type": "EntitySink", "name": "audited" }
+  ],
+  "assertions": [
+    { "name": "billing p95 under 0.5 s", "output": "billed.p95", "op": "<=", "value": 0.5 }
+  ]
+}
