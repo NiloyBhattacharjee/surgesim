@@ -59,4 +59,9 @@ SPECS = {
         "links": ["target"],
         "outputs": ["ScaleOuts", "ScaleIns", "DesiredConcurrency"],
     },
+    "Topic": {
+        "inputs": ["filterProbabilities"],
+        "links": ["subscribers"],
+        "outputs": ["NumberPublished", "NumberDelivered", "NumberFiltered"],
+    },
 }

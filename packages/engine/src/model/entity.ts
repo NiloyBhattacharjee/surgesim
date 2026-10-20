@@ -18,6 +18,8 @@ export interface SimContext {
   rng(streamId: string): Rng;
   /** Create a new moving entity stamped with the current tick. */
   createEntity(): MovingEntity;
+  /** A copy of `entity` with a new id but the same creation time and (shallow-copied) attributes. */
+  copyEntity(entity: MovingEntity): MovingEntity;
 }
 
 /** What the model hands a component constructor. */
@@ -113,7 +115,7 @@ export class LinkedComponent extends StateEntity {
     throw new Error(`${this.name} does not accept entities directly`);
   }
 
-  /** Wire a named link (see the component schema's `links`). Default handles `next`. */
+  /** Wire a named link (see the component schema's `links`); called once per target of a `multiple` link. Default handles `next`. */
   setLink(key: string, target: LinkedComponent): void {
     if (key === "next") this.next = target;
   }

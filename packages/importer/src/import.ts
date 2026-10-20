@@ -58,6 +58,8 @@ const SUPPORTED = new Set([
   "AWS::ApplicationAutoScaling::ScalingPolicy",
   "AWS::ApiGateway::UsagePlan",
   "AWS::ApiGateway::Stage",
+  "AWS::SNS::Topic",
+  "AWS::SNS::Subscription",
 ]);
 
 interface Resource {
@@ -72,7 +74,7 @@ function allocateNames(resources: readonly Resource[], parameters: Record<string
   const taken = new Set<string>();
   const names = new Map<string, string>();
   const preferred = (r: Resource): string[] => {
-    const literal = resolveString(r.props["QueueName"] ?? r.props["FunctionName"], parameters);
+    const literal = resolveString(r.props["QueueName"] ?? r.props["FunctionName"] ?? r.props["TopicName"], parameters);
     const out: string[] = [];
     if (literal) out.push(literal);
     const meta = r.raw["Metadata"];
@@ -106,7 +108,8 @@ function parseJsonish(v: Json): Json {
  * Mapped: `AWS::SQS::Queue` (visibility timeout, redrive policy and dead-letter queue) to MessageQueue;
  * `AWS::Lambda::Function` (reserved concurrency) to WorkerPool, wired to its queue through
  * `AWS::Lambda::EventSourceMapping`; `AWS::ECS::Service` (desired count) to WorkerPool;
- * `AWS::ApplicationAutoScaling` target tracking to Autoscaler; API Gateway throttling to RateLimiter.
+ * `AWS::ApplicationAutoScaling` target tracking to Autoscaler; API Gateway throttling to RateLimiter;
+ * `AWS::SNS::Topic` with its `sqs` and `lambda` subscriptions (inline or `AWS::SNS::Subscription`) to Topic.
  *
  * A template says nothing about traffic or how long work takes, so those come from {@link ImportOptions}
  * and every such number is listed in `assumptions`.
@@ -133,7 +136,7 @@ export function importCloudFormation(template: unknown, options: ImportOptions =
   const byType = (t: string) => resources.filter((r) => r.type === t);
   const ids = new Set(resources.map((r) => r.id));
   const names = allocateNames(
-    resources.filter((r) => ["AWS::SQS::Queue", "AWS::Lambda::Function", "AWS::ECS::Service"].includes(r.type)),
+    resources.filter((r) => ["AWS::SQS::Queue", "AWS::Lambda::Function", "AWS::ECS::Service", "AWS::SNS::Topic"].includes(r.type)),
     parameters,
   );
 
@@ -218,6 +221,27 @@ export function importCloudFormation(template: unknown, options: ImportOptions =
     feeds.set(fn, { queue, max });
   }
 
+  // --- topic subscriptions: which queues and functions each topic delivers to
+  const functionIds = new Set(byType("AWS::Lambda::Function").map((f) => f.id));
+  const subscriptions = new Map<string, string[]>(byType("AWS::SNS::Topic").map((t) => [t.id, []]));
+  const subscribe = (where: string, topic: string | undefined, sub: Record<string, Json>) => {
+    const protocol = resolveString(sub["Protocol"], parameters);
+    const endpoint = collectRefs(sub["Endpoint"], protocol === "sqs" ? queueIds : functionIds)[0];
+    if (!topic) warnings.push(`${where}: subscription skipped (its topic is not in this template).`);
+    else if (protocol !== "sqs" && protocol !== "lambda") warnings.push(`${where}: ${protocol ?? "unknown"} subscriptions are not modelled; skipped.`);
+    else if (!endpoint) warnings.push(`${where}: subscription skipped (its ${protocol === "sqs" ? "queue" : "function"} is not in this template).`);
+    else {
+      if (sub["FilterPolicy"] !== undefined) warnings.push(`${where}: FilterPolicy is not modelled; every message is delivered (set the topic's filterProbabilities).`);
+      const list = subscriptions.get(topic) as string[];
+      if (!list.includes(endpoint)) list.push(endpoint);
+    }
+  };
+  for (const t of byType("AWS::SNS::Topic")) {
+    for (const sub of Array.isArray(t.props["Subscription"]) ? t.props["Subscription"] : []) if (isRecord(sub)) subscribe(t.id, t.id, sub);
+  }
+  for (const s of byType("AWS::SNS::Subscription")) subscribe(s.id, collectRefs(s.props["TopicArn"], new Set(subscriptions.keys()))[0], s.props);
+  const subscribed = new Set([...subscriptions.values()].flat());
+
   // --- functions and services
   const pools = new Map<string, Component<string>>();
   const pushEntries: string[] = [];
@@ -244,7 +268,7 @@ export function importCloudFormation(template: unknown, options: ImportOptions =
     });
     pools.set(f.id, c);
     components.set(f.id, c);
-    if (!feed) pushEntries.push(f.id);
+    if (!feed && !subscribed.has(f.id)) pushEntries.push(f.id);
     note(f, c, notes);
   }
   for (const s of byType("AWS::ECS::Service")) {
@@ -258,6 +282,23 @@ export function importCloudFormation(template: unknown, options: ImportOptions =
   }
   if (byType("AWS::ECS::Service").length > 0 && options.concurrencyPerTask === undefined) {
     assumptions.push(`ECS: each task handles ${concurrencyPerTask} requests concurrently (set concurrencyPerTask).`);
+  }
+
+  // --- topics
+  const topicIds: string[] = [];
+  for (const t of byType("AWS::SNS::Topic")) {
+    const subscribers = (subscriptions.get(t.id) as string[]).map((id) => components.get(id) as Component<string>);
+    if (subscribers.length === 0) {
+      warnings.push(`${t.id}: topic has no sqs or lambda subscription in this template; skipped.`);
+      continue;
+    }
+    if (resolveString(t.props["FifoTopic"], parameters) === "true" || t.props["FifoTopic"] === true) {
+      warnings.push(`${t.id}: FIFO ordering is not modelled; it is treated as a standard topic.`);
+    }
+    const c = model.topic(names.get(t.id) as string, { subscribers });
+    components.set(t.id, c);
+    topicIds.push(t.id);
+    note(t, c, [`fans out to ${subscribers.map((s) => s.name).join(", ")}`]);
   }
 
   // --- autoscaling
@@ -335,11 +376,11 @@ export function importCloudFormation(template: unknown, options: ImportOptions =
     for (const want of requested) {
       const id = [...components.keys()].find((k) => k === want || components.get(k)?.name === want);
       if (id) entryIds.push(id);
-      else warnings.push(`entry "${want}" is not a queue, function or service in this template; ignored.`);
+      else warnings.push(`entry "${want}" is not a queue, topic, function or service in this template; ignored.`);
     }
   } else {
-    for (const id of queueIds) if (!deadLetterTargets.has(id)) entryIds.push(id);
-    entryIds.push(...pushEntries);
+    for (const id of queueIds) if (!deadLetterTargets.has(id) && !subscribed.has(id)) entryIds.push(id);
+    entryIds.push(...topicIds, ...pushEntries);
   }
   if (entryIds.length === 0) {
     warnings.push("no entry point found: the model has no traffic. Pass entry to choose where requests arrive.");

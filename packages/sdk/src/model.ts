@@ -10,6 +10,7 @@ import {
   type RateLimiterProps,
   type RetryPolicyProps,
   type ServerProps,
+  type TopicProps,
   type WorkerPoolProps,
 } from "./components.js";
 
@@ -81,12 +82,12 @@ export class Model {
     if (name.trim() === "") problems.push({ component: name, key: "name", message: "must be a non-empty string" });
 
     const inputs: Record<string, unknown> = {};
-    const links: [string, Component<string>][] = [];
+    const links: [string, Component<string> | Component<string>[]][] = [];
     let stream: string | undefined;
     for (const [key, value] of Object.entries(props)) {
       if (value === undefined) continue;
       if (key === "stream") stream = value as string;
-      else if (spec.links.includes(key)) links.push([key, value as Component<string>]);
+      else if (spec.links.includes(key)) links.push([key, value as Component<string> | Component<string>[]]);
       else if (spec.inputs.includes(key)) inputs[key] = value;
       else problems.push({ component: name, key, message: `unknown property for ${type} (inputs: ${spec.inputs.join(", ") || "none"}; links: ${spec.links.join(", ") || "none"})` });
     }
@@ -143,11 +144,16 @@ export class Model {
     return this.make("Autoscaler", name, props);
   }
 
+  /** Pub/sub fan-out (SNS-style): copies each entity to every subscriber. */
+  topic(name: string, props: TopicProps): Component<OutputOf<"Topic">> {
+    return this.make("Topic", name, props);
+  }
+
   /**
    * Add a component of any type, including ones registered with a custom engine registry. Prefer the typed
    * builder methods for the built-in types.
    */
-  custom(type: string, name: string, inputs: Record<string, unknown> = {}, links: Record<string, Component<string>> = {}): Component<string> {
+  custom(type: string, name: string, inputs: Record<string, unknown> = {}, links: Record<string, Component<string> | Component<string>[]> = {}): Component<string> {
     if (this.components.has(name)) throw new ModelBuildError([{ component: name, key: "name", message: "duplicate component name" }]);
     const c = new Component(type, name, inputs);
     for (const [key, target] of Object.entries(links)) c.link(key, target);
@@ -182,9 +188,11 @@ export class Model {
   toJSON(): ModelJson {
     const problems: BuildProblem[] = [];
     for (const c of this.components.values()) {
-      for (const [key, target] of c.links) {
-        if (this.components.get(target.name) !== target) {
-          problems.push({ component: c.name, key, message: `links to "${target.name}", which is not a component of this model` });
+      for (const [key, targets] of c.links) {
+        for (const target of [targets].flat()) {
+          if (this.components.get(target.name) !== target) {
+            problems.push({ component: c.name, key, message: `links to "${target.name}", which is not a component of this model` });
+          }
         }
       }
     }

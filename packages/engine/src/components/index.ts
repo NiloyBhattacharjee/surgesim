@@ -9,5 +9,6 @@ export { RateLimiter } from "./rate-limiter.js";
 export { Autoscaler } from "./autoscaler.js";
 export type { Scalable } from "./autoscaler.js";
 export { EntitySink } from "./sink.js";
+export { Topic } from "./topic.js";
 export { ComponentRegistry, createDefaultRegistry } from "./registry.js";
 export type { ComponentClass } from "./registry.js";

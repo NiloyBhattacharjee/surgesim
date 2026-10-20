@@ -15,6 +15,7 @@ const LOOK: Record<string, [label: string, kind: string, name: string]> = {
   Server: ["Server", "worker", "server"],
   WorkerPool: ["Worker pool", "worker", "workers"],
   Autoscaler: ["Autoscaler", "control", "autoscaler"],
+  Topic: ["Topic (SNS)", "queue", "topic"],
   EntitySink: ["Done (sink)", "sink", "done"],
 };
 const look = (type: string): [string, string, string] => LOOK[type] ?? [type, "control", type[0]!.toLowerCase() + type.slice(1)];
@@ -29,8 +30,11 @@ interface Component {
   type: string;
   name: string;
   inputs?: Record<string, unknown>;
-  links?: Record<string, string>;
+  links?: Record<string, string | string[]>;
 }
+/** A link's targets: a list link as given, a single link as a one-element list. */
+const targetsOf = (v: string | string[] | undefined): string[] => (v === undefined ? [] : [v].flat());
+const isMultiple = (type: string, key: string): boolean => byType.get(type)?.links.find((l) => l.key === key)?.multiple === true;
 /** The parts of a model the diagram edits; everything else is passed through untouched. */
 export interface Model {
   components?: Component[];
@@ -82,7 +86,10 @@ function rewriteOutputs(m: Model, name: string, to: string | null): void {
 export function renameComponent(m: Model, from: string, to: string): void {
   for (const c of m.components ?? []) {
     if (c.name === from) c.name = to;
-    for (const k in c.links) if (c.links[k] === from) c.links[k] = to;
+    for (const k in c.links) {
+      const v = c.links[k]!;
+      c.links[k] = Array.isArray(v) ? v.map((t) => (t === from ? to : t)) : v === from ? to : v;
+    }
   }
   rewriteOutputs(m, from, to);
 }
@@ -90,14 +97,28 @@ export function renameComponent(m: Model, from: string, to: string): void {
 /** Remove a component and everything that refers to it. */
 export function removeComponent(m: Model, name: string): void {
   m.components = (m.components ?? []).filter((c) => c.name !== name);
-  for (const c of m.components) for (const k in c.links) if (c.links[k] === name) delete c.links[k];
+  for (const c of m.components)
+    for (const k in c.links) {
+      const left = targetsOf(c.links[k]).filter((t) => t !== name);
+      if (left.length === 0) delete c.links[k];
+      else if (Array.isArray(c.links[k])) c.links[k] = left;
+    }
   rewriteOutputs(m, name, null);
 }
 
-/** Set (or with `target` null, clear) one link. */
+/** Set (or with `target` null, clear) one link. On a list link (a topic's subscribers) `target` is added, or removed if already there. */
 export function setLink(m: Model, name: string, key: string, target: string | null): void {
   const c = m.components?.find((x) => x.name === name);
   if (!c) return;
+  if (target !== null && isMultiple(c.type, key)) {
+    const list = targetsOf(c.links?.[key]);
+    const next = list.includes(target) ? list.filter((t) => t !== target) : [...list, target];
+    if (next.length > 0) {
+      (c.links ??= {})[key] = next;
+      return;
+    }
+    target = null;
+  }
   if (target === null) {
     if (c.links) delete c.links[key];
     if (c.links && Object.keys(c.links).length === 0) delete c.links;
@@ -113,12 +134,13 @@ export function layout(m: Model): Map<string, [depth: number, lane: number]> {
   const out = new Map(comps.map((c) => [c.name, [] as string[]]));
   const indeg = new Map(comps.map((c) => [c.name, 0]));
   for (const c of comps)
-    for (const [key, t] of Object.entries(c.links ?? {})) {
-      if (!out.has(t) || t === c.name) continue;
-      const [a, b] = isPull(c.type, key) ? [t, c.name] : [c.name, t];
-      out.get(a)!.push(b);
-      indeg.set(b, indeg.get(b)! + 1);
-    }
+    for (const [key, v] of Object.entries(c.links ?? {}))
+      for (const t of targetsOf(v)) {
+        if (!out.has(t) || t === c.name) continue;
+        const [a, b] = isPull(c.type, key) ? [t, c.name] : [c.name, t];
+        out.get(a)!.push(b);
+        indeg.set(b, indeg.get(b)! + 1);
+      }
   const depth = new Map<string, number>();
   const roots = [...comps.filter((c) => indeg.get(c.name) === 0), ...comps].map((c) => c.name);
   for (const root of roots) {
@@ -405,16 +427,17 @@ export function mountDiagram(
       svg.setAttribute("width", String(canvas.scrollWidth));
       svg.setAttribute("height", String(canvas.scrollHeight));
       for (const c of comps)
-        for (const [key, t] of Object.entries(c.links ?? {})) {
-          const from = nodes.get(c.name)?.querySelector<HTMLElement>(`.port[data-key="${CSS.escape(key)}"]`);
-          const to = nodes.get(t);
-          if (!from || !to) continue;
-          const a = centre(from);
-          const b = { x: to.offsetLeft + to.offsetWidth / 2, y: to.offsetTop };
-          const path = curve(a, b, isPull(c.type, key));
-          path.setAttribute("marker-end", "url(#arrow)");
-          svg.appendChild(path);
-        }
+        for (const [key, v] of Object.entries(c.links ?? {}))
+          for (const t of targetsOf(v)) {
+            const from = nodes.get(c.name)?.querySelector<HTMLElement>(`.port[data-key="${CSS.escape(key)}"]`);
+            const to = nodes.get(t);
+            if (!from || !to) continue;
+            const a = centre(from);
+            const b = { x: to.offsetLeft + to.offsetWidth / 2, y: to.offsetTop };
+            const path = curve(a, b, isPull(c.type, key));
+            path.setAttribute("marker-end", "url(#arrow)");
+            svg.appendChild(path);
+          }
     };
     const centre = (dot: HTMLElement): { x: number; y: number } => {
       const r = dot.getBoundingClientRect();
@@ -567,7 +590,7 @@ export function mountDiagram(
         if (raw === "") value = undefined;
         else if (s.type === "number" || s.type === "integer") value = Number(raw);
         else if (s.type === "boolean") value = raw === "true";
-        else if (s.type === "sampler" || s.type === "rateProfile") {
+        else if (s.type === "sampler" || s.type === "rateProfile" || s.type === "numberList") {
           try {
             value = JSON.parse(raw);
           } catch {
@@ -582,19 +605,24 @@ export function mountDiagram(
         commit();
       });
       const unit = s.unit === "time" ? " (s)" : s.unit === "rate" ? " (/s)" : "";
-      const example = s.type === "sampler" ? ' A number, or e.g. {"dist":"exponential","mean":0.5}.' : s.type === "rateProfile" ? " [[startSeconds, ratePerSecond], ...]" : "";
+      const example = s.type === "sampler" ? ' A number, or e.g. {"dist":"exponential","mean":0.5}.' : s.type === "rateProfile" ? " [[startSeconds, ratePerSecond], ...]" : s.type === "numberList" ? " [0.5, 1, ...]" : "";
       field(s.key + unit, s.description + example, input);
     }
 
     for (const l of schema?.links ?? []) {
       const select = el("select");
-      const current = c.links?.[l.key];
-      const valid = comps.filter((x) => x.name !== c.name && (canLink(c.type, l.key, x.type) || x.name === current));
-      for (const v of ["", ...valid.map((x) => x.name)])
-        select.appendChild(Object.assign(el("option", "", v === "" ? "(none)" : v), { value: v }));
-      select.value = current ?? "";
+      const current = targetsOf(c.links?.[l.key]);
+      const valid = comps.filter((x) => x.name !== c.name && (canLink(c.type, l.key, x.type) || current.includes(x.name)));
+      select.multiple = l.multiple === true;
+      for (const v of [...(l.multiple ? [] : [""]), ...valid.map((x) => x.name)])
+        select.appendChild(Object.assign(el("option", "", v === "" ? "(none)" : v), { value: v, selected: current.includes(v) }));
+      if (!l.multiple) select.value = current[0] ?? "";
       select.addEventListener("change", () => {
-        setLink(model!, c.name, l.key, select.value === "" ? null : select.value);
+        if (l.multiple) {
+          const picked = [...select.selectedOptions].map((o) => o.value);
+          setLink(model!, c.name, l.key, null);
+          if (picked.length > 0) (c.links ??= {})[l.key] = picked;
+        } else setLink(model!, c.name, l.key, select.value === "" ? null : select.value);
         commit();
       });
       field(`→ ${l.key}${l.required ? " *" : ""}`, l.description, select);

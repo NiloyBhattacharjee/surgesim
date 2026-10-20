@@ -178,6 +178,7 @@ in TypeScript.
 | `RetryPolicy` | exponential backoff with `none` / `full` / `equal` jitter, `maxDelay`, give-up routing |
 | `RateLimiter` | token bucket |
 | `Autoscaler` | target-tracking scaling with provisioning delay and scale-in cooldown |
+| `Topic` | SNS-style fan-out: a copy of each message to every subscriber, with per-subscription filter probabilities |
 
 Every input, link and output is documented in [docs/model-format.md](docs/model-format.md), and `surgesim schema`
 prints the machine-readable form.
@@ -194,6 +195,7 @@ prints the machine-readable form.
 | [`examples/retry-storm.json`](examples/retry-storm.json) | a flaky, nearly-saturated dependency with immediate retries amplifies its own load (`RetryAmplification`) |
 | [`examples/autoscaled-service.json`](examples/autoscaled-service.json) | a queue-fed service under a 4x spike: autoscaler, pricing, and SLO/budget assertions that fail the run (exit 3) if scaling is too slow |
 | [`examples/rate-limited-api.json`](examples/rate-limited-api.json) | a token-bucket limiter sheds an 80/s burst (about 25% rejected) so the worker pool behind it barely throttles |
+| [`examples/sns-fan-out.json`](examples/sns-fan-out.json) | a topic fans orders out to a fast billing queue and a filtered, under-provisioned audit queue: audit backs up (p95 about 3.4 s) while billing stays at 0.2 s |
 | [`examples/bounded-queue-overload.json`](examples/bounded-queue-overload.json) | M/M/2/50 under permanent overload: the bounded queue drops excess arrivals and latency stays capped near 12 s |
 | [`examples/two-stage-pipeline.json`](examples/two-stage-pipeline.json) | parse then enrich: the slower stage (about 88% utilised) holds the backlog and sets end-to-end p95; gated by an assertion |
 | [`examples/diurnal-autoscaling-cost.json`](examples/diurnal-autoscaling-cost.json) | a compressed daily traffic cycle with an autoscaler held near 50% utilisation, showing provisioned cost versus backlog |
@@ -322,8 +324,9 @@ Not built yet:
   [docs/releasing.md](docs/releasing.md)).
 - Real-data calibration: the fitting and comparison tools have been exercised on synthetic data and on one small real
   program (two 10-minute runs), not on production traffic.
-- Importer: only SQS, Lambda, ECS services, Application Auto Scaling target tracking and API Gateway throttling.
-- Components: no DynamoDB, SNS fan-out, load balancers, FIFO queues, batching, step scaling or multi-region.
+- Importer: only SQS, Lambda, ECS services, SNS topics (sqs and lambda subscriptions), Application Auto Scaling target
+  tracking and API Gateway throttling.
+- Components: no DynamoDB, load balancers, FIFO queues, batching, step scaling or multi-region.
 - Distributions are fitted one at a time from independent samples; there is no mixture model, expression language or
   richer unit system.
 - Comparison reports do not yet embed a diff of the two models themselves. "Differs" is a paired t-test (runs with

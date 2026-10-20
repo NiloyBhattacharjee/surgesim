@@ -55,11 +55,11 @@ Every `interval` seconds, from time 0 to `duration`, the listed outputs are samp
 | `type` | Component type (see below). |
 | `name` | Unique, non-empty. Used in links and output ids. |
 | `inputs` | Object of inputs, validated against the component's schema. Optional if none are required. |
-| `links` | Object mapping link keys to **component names**. |
+| `links` | Object mapping link keys to **component names**. A list link (`Topic.subscribers`) takes a non-empty array of distinct names instead. |
 | `stream` | Optional RNG stream id (default: the component name). Two components never share a stream unless you give them the same id. |
 
 Links must point to a component with the role the link requires (e.g. `Server.queue` needs a
-`Queue`). Cycles are permitted.
+`Queue`); every name in a list link is checked the same way. Cycles are permitted.
 
 ### Numeric inputs: constants and distributions
 
@@ -235,9 +235,26 @@ Link: `target` (role `scalable`, **required**). Outputs: `ScaleOuts`, `ScaleIns`
 Lowering a pool's concurrency never interrupts running work: the pool just stops starting new work until busy
 workers fall below the new limit.
 
+### `Topic` — role `receiver`
+Pub/sub fan-out (an SNS topic). Each entity published to the topic is delivered, as a copy, to every subscriber in
+order, instantly. Copies keep the original creation time, so a sink after any subscriber measures end-to-end latency.
+Subscriber `i` receives a copy with probability `filterProbabilities[i]` (an SNS filter policy that matches that
+fraction of messages); filter draws use the topic's own RNG stream.
+
+```json
+{ "type": "Topic", "name": "orders", "inputs": { "filterProbabilities": [1, 0.2] }, "links": { "subscribers": ["billing", "audit"] } }
+```
+
+| Input | Type | Default | |
+|---|---|---|---|
+| `filterProbabilities` | list of numbers in [0, 1], one per subscriber | all `1` | Chance a copy passes each subscription's filter. |
+
+Link: `subscribers` (a **list**, role `receiver`, **required**). Outputs: `NumberPublished`, `NumberDelivered`,
+`NumberFiltered`.
+
 ### Roles
 `Queue` has roles `receiver`, `queue`, `pullable`; `MessageQueue` has `receiver`, `pullable`; `WorkerPool` has
-`receiver`, `scalable`. `Server.queue` needs role `queue` (so a plain `Queue`); `WorkerPool.queue` needs `pullable`
+`receiver`, `scalable`; `Topic` has `receiver`. `Server.queue` needs role `queue` (so a plain `Queue`); `WorkerPool.queue` needs `pullable`
 (either); `Autoscaler.target` needs `scalable`.
 
 ## Assertions

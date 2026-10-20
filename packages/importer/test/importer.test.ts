@@ -147,6 +147,55 @@ describe("options and defaults", () => {
   });
 });
 
+describe("SNS fan-out", () => {
+  // One topic: an SQS subscription (inline) feeding a function, and a direct Lambda subscription (resource).
+  const template = () => ({
+    Resources: {
+      Events: { Type: "AWS::SNS::Topic", Properties: { TopicName: "events", Subscription: [{ Protocol: "sqs", Endpoint: { "Fn::GetAtt": ["Audit", "Arn"] } }] } },
+      Audit: { Type: "AWS::SQS::Queue", Properties: { VisibilityTimeout: 60 } },
+      AuditFn: { Type: "AWS::Lambda::Function", Properties: { ReservedConcurrentExecutions: 5 } },
+      AuditMapping: { Type: "AWS::Lambda::EventSourceMapping", Properties: { EventSourceArn: { "Fn::GetAtt": ["Audit", "Arn"] }, FunctionName: { Ref: "AuditFn" } } },
+      Notify: { Type: "AWS::Lambda::Function", Properties: { ReservedConcurrentExecutions: 5 } },
+      NotifySub: { Type: "AWS::SNS::Subscription", Properties: { TopicArn: { Ref: "Events" }, Protocol: "lambda", Endpoint: { "Fn::GetAtt": ["Notify", "Arn"] }, FilterPolicy: { kind: ["x"] } } },
+      EmailSub: { Type: "AWS::SNS::Subscription", Properties: { TopicArn: { Ref: "Events" }, Protocol: "email", Endpoint: "a@b.c" } },
+    },
+  });
+
+  it("maps the topic to a Topic whose subscribers are the subscribed queue and function", () => {
+    const r = imported(template());
+    expect(comp(r, "events")).toMatchObject({ type: "Topic", links: { subscribers: ["Audit", "Notify"] } });
+    expect(r.mapped.find((m) => m.logicalId === "Events")!.notes.join()).toContain("fans out to Audit, Notify");
+  });
+
+  it("the topic is the only entry point: subscribed queues and functions get no traffic of their own", () => {
+    const r = imported(template());
+    expect(r.model.components.filter((c) => c.type === "EntityGenerator").map((c) => c.links?.["next"])).toEqual(["events"]);
+  });
+
+  it("flags filter policies and unmodelled protocols", () => {
+    const w = imported(template()).warnings.join("\n");
+    expect(w).toContain("NotifySub: FilterPolicy is not modelled");
+    expect(w).toContain("EmailSub: email subscriptions are not modelled");
+  });
+
+  it("simulates the fan-out: every published message reaches both subscribers", () => {
+    const r = imported(template(), { ratePerSecond: 2, serviceTime: dist.constant(0.1), duration: 200, replications: 2 });
+    const loaded = loadModel(r.model);
+    if (!loaded.ok) throw new Error(JSON.stringify(loaded.errors));
+    const res = runModel(loaded.model);
+    const published = out(res, "events.NumberPublished").mean!;
+    expect(out(res, "events.NumberDelivered").mean).toBe(2 * published);
+    expect(Math.abs(out(res, "AuditFn.NumberSucceeded").mean! - published)).toBeLessThanOrEqual(1);
+    expect(Math.abs(out(res, "Notify.NumberSucceeded").mean! - published)).toBeLessThanOrEqual(1);
+  });
+
+  it("a topic with no modelled subscriptions is skipped with a warning", () => {
+    const r = imported({ Resources: { T: { Type: "AWS::SNS::Topic" } } });
+    expect(comp(r, "T")).toBeUndefined();
+    expect(r.warnings.join("\n")).toContain("T: topic has no sqs or lambda subscription");
+  });
+});
+
 describe("honest about what it cannot represent", () => {
   it("a redrive policy pointing outside the template warns", () => {
     const t = stack();

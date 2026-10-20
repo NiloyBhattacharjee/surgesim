@@ -13,6 +13,10 @@ const gen = (name: string, next: string, inputs: object = { interArrivalTime: 1,
 });
 const sink = (name: string): Comp => ({ type: "EntitySink", name });
 const val = (r: ReturnType<typeof run>, id: string) => out(r, id).mean;
+const errorsOf = (components: Comp[]) => {
+  const res = loadModel(model(components));
+  return res.ok ? [] : res.errors;
+};
 
 describe("MessageQueue: visibility timeout, redelivery and dead-letter queue", () => {
   const pipeline = (visibilityTimeout: number, poolInputs: object, poolLinks: object = {}, maxReceiveCount?: number) =>
@@ -309,6 +313,48 @@ describe("RateLimiter: token bucket", () => {
   });
 });
 
+describe("Topic: fan-out", () => {
+  const topic = (inputs: object, subscribers: unknown = ["a", "b"]): Comp => ({ type: "Topic", name: "topic", inputs, links: { subscribers } });
+
+  it("delivers a copy to every subscriber, keeping the original creation time", () => {
+    // 10 arrivals; subscriber b sits behind a 2 s constant service, so its time in system is exactly 2.
+    const r = run(
+      model([
+        gen("gen", "topic", { interArrivalTime: 1, maxNumber: 10 }),
+        topic({}, ["a", "pool"]),
+        sink("a"),
+        { type: "WorkerPool", name: "pool", inputs: { concurrency: 100, serviceTime: 2 }, links: { next: "b" } },
+        sink("b"),
+      ]),
+    );
+    expect(val(r, "topic.NumberPublished")).toBe(10);
+    expect(val(r, "topic.NumberDelivered")).toBe(20);
+    expect(val(r, "a.count")).toBe(10);
+    expect(val(r, "a.mean")).toBe(0);
+    expect(val(r, "b.count")).toBe(10);
+    expect(val(r, "b.mean")).toBeCloseTo(2, 9);
+  });
+
+  it("filters each subscription with its own probability (binomial: 20000 x 0.3)", () => {
+    const r = run(model([gen("gen", "topic", { interArrivalTime: 0.001, maxNumber: 20_000 }), topic({ filterProbabilities: [1, 0.3] }), sink("a"), sink("b")]));
+    expect(val(r, "a.count")).toBe(20_000);
+    // sd = sqrt(20000 * 0.3 * 0.7) ~ 65; allow 4 sd
+    expect(Math.abs(val(r, "b.count")! - 6000)).toBeLessThan(260);
+    expect(val(r, "topic.NumberFiltered")! + val(r, "b.count")!).toBe(20_000);
+  });
+
+  it("validates the subscriber list and one filter probability per subscriber", () => {
+    const keysOf = (c: Comp) => errorsOf([c, sink("a"), sink("b")]).map((e) => `${e.key}: ${e.message}`);
+    expect(keysOf(topic({ filterProbabilities: [0.5] }))[0]).toContain("filterProbabilities: must have one entry per subscribers target (2), got 1");
+    expect(keysOf(topic({ filterProbabilities: [0.5, 2] }))[0]).toContain("entry 1 must be <= 1");
+    expect(keysOf(topic({}, "a"))[0]).toContain("non-empty list");
+    expect(keysOf(topic({}, []))[0]).toContain("non-empty list");
+    expect(keysOf(topic({}, ["a", "a"]))[0]).toContain("same component twice");
+    expect(keysOf(topic({}, ["a", "nope"]))[0]).toContain('no component named "nope"');
+    expect(keysOf({ type: "Topic", name: "topic" })[0]).toContain("required link");
+  });
+});
+
 describe("cloud components: composition, determinism and validation", () => {
   const stormy = model(
     [
@@ -338,11 +384,6 @@ describe("cloud components: composition, determinism and validation", () => {
     expect(requests - done).toBeLessThan(0.05 * requests); // only a few still retrying at the end
     expect(val(r, "retry.RetryAmplification")!).toBeGreaterThan(1);
   });
-
-  const errorsOf = (components: Comp[]) => {
-    const res = loadModel(model(components));
-    return res.ok ? [] : res.errors;
-  };
 
   it("WorkerPool requires concurrency and serviceTime", () => {
     const errs = errorsOf([{ type: "WorkerPool", name: "pool" }]);

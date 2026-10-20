@@ -34,8 +34,8 @@ export interface ComponentDefinition {
   type: string;
   name: string;
   inputs: Record<string, unknown>;
-  /** Link key -> target component name. */
-  links: Record<string, string>;
+  /** Link key -> target component name, or a list of names for a `multiple` link. */
+  links: Record<string, string | string[]>;
   /** Optional RNG stream id; defaults to the component name. */
   stream?: string;
 }

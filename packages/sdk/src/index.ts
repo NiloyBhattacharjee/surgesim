@@ -16,4 +16,5 @@ export type {
   RetryPolicyProps,
   RateLimiterProps,
   AutoscalerProps,
+  TopicProps,
 } from "./components.js";

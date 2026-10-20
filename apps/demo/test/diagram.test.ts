@@ -41,6 +41,23 @@ describe("diagram model edits", () => {
     expect(canLink("EntityGenerator", "next", "EntityGenerator")).toBe(false);
   });
 
+  it("a topic's subscribers link is a list: linking adds or toggles, rename and remove edit the list", () => {
+    const m = base();
+    const t = addComponent(m, "Topic");
+    const a = addComponent(m, "EntitySink");
+    const b = addComponent(m, "EntitySink");
+    setLink(m, t, "subscribers", a);
+    setLink(m, t, "subscribers", b);
+    const topic = m.components!.find((c) => c.name === t)!;
+    expect(topic.links).toEqual({ subscribers: [a, b] });
+    renameComponent(m, a, "audit");
+    expect(topic.links).toEqual({ subscribers: ["audit", b] });
+    setLink(m, t, "subscribers", b); // linking an existing subscriber again removes it
+    expect(topic.links).toEqual({ subscribers: ["audit"] });
+    removeComponent(m, "audit");
+    expect(topic.links).toEqual({});
+  });
+
   it("rename and remove keep links, time series and assertions consistent", () => {
     const m = base();
     const q = addComponent(m, "Queue");
