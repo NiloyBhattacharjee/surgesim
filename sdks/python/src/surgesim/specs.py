@@ -55,7 +55,7 @@ SPECS = {
         "outputs": ["NumberAllowed", "NumberRejected", "RejectionFraction", "Tokens"],
     },
     "Autoscaler": {
-        "inputs": ["targetUtilisation", "evaluationInterval", "minConcurrency", "maxConcurrency", "scaleUpDelay", "scaleDownCooldown"],
+        "inputs": ["targetUtilisation", "evaluationInterval", "minConcurrency", "maxConcurrency", "scaleUpDelay", "scaleDownCooldown", "scaleDownStabilisation", "step"],
         "links": ["target"],
         "outputs": ["ScaleOuts", "ScaleIns", "DesiredConcurrency"],
     },

@@ -177,7 +177,7 @@ in TypeScript.
 | `WorkerPool` | concurrency limit, cold starts, idle reclaim, throttling, failures, per-second/per-request pricing |
 | `RetryPolicy` | exponential backoff with `none` / `full` / `equal` jitter, `maxDelay`, give-up routing |
 | `RateLimiter` | token bucket |
-| `Autoscaler` | target-tracking scaling with provisioning delay and scale-in cooldown |
+| `Autoscaler` | target-tracking scaling with provisioning delay, scale-in cooldown or HPA-style stabilisation window, and whole-pod steps |
 | `Topic` | SNS-style fan-out: a copy of each message to every subscriber, with per-subscription filter probabilities |
 | `Branch` | probabilistic routing: each entity goes to one target (e.g. 60% of requests call a downstream service) |
 

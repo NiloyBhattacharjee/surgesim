@@ -218,9 +218,16 @@ Outputs: `NumberAllowed`, `NumberRejected`, `RejectionFraction`, `Tokens` (curre
 ### `Autoscaler`
 Target-tracking autoscaler (like AWS target tracking or a Kubernetes HPA) for a `WorkerPool`. Every
 `evaluationInterval` it measures the average number of busy workers over that interval and computes
-`desired = ceil(averageBusy / targetUtilisation)`, clamped to `[minConcurrency, maxConcurrency]`.
-Scale-out takes effect after `scaleUpDelay`; scale-in is immediate but only `scaleDownCooldown` seconds after the
-last scaling change. A saturated pool therefore grows by a factor of `1 / targetUtilisation` per evaluation.
+`desired = ceil(averageBusy / targetUtilisation)`, rounded up to a multiple of `step` and clamped to
+`[minConcurrency, maxConcurrency]`. Scale-out takes effect after `scaleUpDelay`; scale-in is immediate but only
+`scaleDownCooldown` seconds after the last scaling change. A saturated pool therefore grows by a factor of
+`1 / targetUtilisation` per evaluation.
+
+To model a Kubernetes HPA, set `step` to the requests one pod serves at once (so the pool scales in whole pods and
+`desired` is the HPA's `ceil(currentReplicas × currentUtilisation / target)`), `evaluationInterval` to `15`, and
+`scaleDownStabilisation` to the scale-down stabilisation window (HPA default `300`). With a window set, scale-in
+goes to the highest desired value of the last `scaleDownStabilisation` seconds and `scaleDownCooldown` is ignored.
+The HPA's 10% tolerance is not modelled.
 
 | Input | Type | Default | |
 |---|---|---|---|
@@ -230,6 +237,8 @@ last scaling change. A saturated pool therefore grows by a factor of `1 / target
 | `maxConcurrency` | integer ≥ 1 | **required** | |
 | `scaleUpDelay` | number ≥ 0 (s) | `0` | Provisioning time before added capacity is usable. |
 | `scaleDownCooldown` | number ≥ 0 (s) | `300` | Minimum seconds since the last change before scaling in. |
+| `scaleDownStabilisation` | number ≥ 0 (s) | none | HPA-style window: scale in to the highest desired value within it. Replaces the cooldown when set. |
+| `step` | integer ≥ 1 | `1` | Scale in multiples of this many workers (e.g. requests per pod). Make min/max multiples of it. |
 
 Link: `target` (role `scalable`, **required**). Outputs: `ScaleOuts`, `ScaleIns`, `DesiredConcurrency` (current).
 Lowering a pool's concurrency never interrupts running work: the pool just stops starting new work until busy

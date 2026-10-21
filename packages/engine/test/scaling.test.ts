@@ -64,7 +64,7 @@ describe("cost", () => {
 });
 
 describe("Autoscaler", () => {
-  const scaled = (autoscaler: object, extra: Partial<{ arrival: object; service: object; duration: number; poolInputs: object; series: boolean }> = {}) =>
+  const scaled = (autoscaler: object, extra: Partial<{ arrival: object; service: object | number; duration: number; poolInputs: object; series: boolean }> = {}) =>
     model(
       [
         gen("gen", "q", extra.arrival ?? { interArrivalTime: 0.1 }),
@@ -128,6 +128,58 @@ describe("Autoscaler", () => {
     // ...but with a 200 s cooldown it is held until 50 + 200 = 250 s.
     expect(slow[249]).toBe(20);
     expect(slow[251]).toBe(1);
+  });
+
+  it("step rounds desired up to whole pods: avg busy ~2.49 at target 0.5 -> 5 workers, or 8 with 4 per pod", () => {
+    // Deterministic: an arrival every 0.1 s, 0.25 s each -> about 2.49 busy over [0,10], ceil(2.49 / 0.5) = 5.
+    const desired = (step: number) =>
+      series(run(scaled({ targetUtilisation: 0.5, evaluationInterval: 10, step }, { service: 0.25, poolInputs: { concurrency: 4 }, series: true })), "scaler.DesiredConcurrency")[10];
+    expect(desired(1)).toBe(5);
+    expect(desired(4)).toBe(8);
+  });
+
+  it("scaleDownStabilisation: scale in to the window's highest recommendation, ignoring the cooldown", () => {
+    // Same burst as the cooldown test: the last recommendation of 20 is at t=50, all later ones are 1.
+    // A 100 s window holds 20 until that recommendation leaves it at t=150; the 1000 s cooldown plays no part.
+    const work = { arrival: { interArrivalTime: 0.1, maxNumber: 300 }, duration: 400, series: true };
+    const c = series(
+      run(scaled({ targetUtilisation: 0.5, evaluationInterval: 10, maxConcurrency: 20, scaleDownCooldown: 1000, scaleDownStabilisation: 100 }, work)),
+      "pool.Concurrency",
+    ) as number[];
+    expect(c[50]).toBe(20);
+    expect(c[149]).toBe(20);
+    expect(c[151]).toBe(1);
+  });
+
+  it.each([4, 20])("scaleDownStabilisation %i s matches a brute-force window maximum under noisy load", (window) => {
+    // Evaluations at even seconds, samples at every second: at odd t+1, DesiredConcurrency is the decision made
+    // at t, and Concurrency at t-1 / t+1 is before / after it. The window holds the decisions at t-window+2 .. t.
+    // The 4 s window expires its maximum about every other evaluation, so the deque compacts mid-run.
+    const r = run(
+      scaled(
+        { targetUtilisation: 0.5, evaluationInterval: 2, maxConcurrency: 60, scaleDownStabilisation: window },
+        { arrival: { interArrivalTime: { dist: "exponential", mean: 0.1 } }, service: { dist: "exponential", mean: 1 }, duration: 10_000, series: true },
+      ),
+    );
+    const desired = series(r, "scaler.DesiredConcurrency") as number[];
+    const c = series(r, "pool.Concurrency") as number[];
+    let checked = 0;
+    for (let t = window; t + 1 < c.length; t += 2) {
+      const before = c[t - 1]!;
+      if (desired[t + 1]! > before) continue; // a scale-out, not governed by the window
+      const windowMax = Math.max(...[...Array(window / 2).keys()].map((j) => desired[t + 1 - 2 * j]!));
+      expect(c[t + 1]).toBe(Math.min(before, windowMax));
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(2000);
+  });
+
+  it("a one-day stabilisation window with 1 s evaluations stays fast (no rescanning the history)", () => {
+    // 172,800 evaluations; rescanning a day of history each time would be ~1e10 visits.
+    const start = Date.now();
+    const r = run(scaled({ evaluationInterval: 1, scaleDownStabilisation: 86_400 }, { arrival: { interArrivalTime: 1e9 }, duration: 2 * 86_400 }));
+    expect(val(r, "pool.Concurrency")).toBe(1);
+    expect(Date.now() - start).toBeLessThan(3000);
   });
 
   it("autoscaling relieves an overloaded pool: lower mean time in system than a fixed single worker", () => {
