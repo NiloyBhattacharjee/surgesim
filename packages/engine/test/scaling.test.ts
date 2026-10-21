@@ -64,7 +64,7 @@ describe("cost", () => {
 });
 
 describe("Autoscaler", () => {
-  const scaled = (autoscaler: object, extra: Partial<{ arrival: object; service: object; duration: number; poolInputs: object; series: boolean }> = {}) =>
+  const scaled = (autoscaler: object, extra: Partial<{ arrival: object; service: object | number; duration: number; poolInputs: object; series: boolean }> = {}) =>
     model(
       [
         gen("gen", "q", extra.arrival ?? { interArrivalTime: 0.1 }),
@@ -128,6 +128,27 @@ describe("Autoscaler", () => {
     // ...but with a 200 s cooldown it is held until 50 + 200 = 250 s.
     expect(slow[249]).toBe(20);
     expect(slow[251]).toBe(1);
+  });
+
+  it("step rounds desired up to whole pods: avg busy ~2.49 at target 0.5 -> 5 workers, or 8 with 4 per pod", () => {
+    // Deterministic: an arrival every 0.1 s, 0.25 s each -> about 2.49 busy over [0,10], ceil(2.49 / 0.5) = 5.
+    const desired = (step: number) =>
+      series(run(scaled({ targetUtilisation: 0.5, evaluationInterval: 10, step }, { service: 0.25, poolInputs: { concurrency: 4 }, series: true })), "scaler.DesiredConcurrency")[10];
+    expect(desired(1)).toBe(5);
+    expect(desired(4)).toBe(8);
+  });
+
+  it("scaleDownStabilisation: scale in to the window's highest recommendation, ignoring the cooldown", () => {
+    // Same burst as the cooldown test: the last recommendation of 20 is at t=50, all later ones are 1.
+    // A 100 s window holds 20 until that recommendation leaves it at t=150; the 1000 s cooldown plays no part.
+    const work = { arrival: { interArrivalTime: 0.1, maxNumber: 300 }, duration: 400, series: true };
+    const c = series(
+      run(scaled({ targetUtilisation: 0.5, evaluationInterval: 10, maxConcurrency: 20, scaleDownCooldown: 1000, scaleDownStabilisation: 100 }, work)),
+      "pool.Concurrency",
+    ) as number[];
+    expect(c[50]).toBe(20);
+    expect(c[149]).toBe(20);
+    expect(c[151]).toBe(1);
   });
 
   it("autoscaling relieves an overloaded pool: lower mean time in system than a fixed single worker", () => {

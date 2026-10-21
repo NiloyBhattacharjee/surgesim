@@ -14,13 +14,16 @@ export interface Scalable {
  * Target-tracking autoscaler for a WorkerPool (like AWS target tracking or a Kubernetes HPA).
  *
  * Every `evaluationInterval` seconds it measures the average number of busy workers over that
- * interval and computes `desired = ceil(averageBusy / targetUtilisation)`, clamped to
- * `[minConcurrency, maxConcurrency]`.
+ * interval and computes `desired = ceil(averageBusy / targetUtilisation)`, rounded up to a multiple of
+ * `step` and clamped to `[minConcurrency, maxConcurrency]`. With `step` set to the workers per pod, this is
+ * the Kubernetes HPA formula `ceil(currentReplicas * currentUtilisation / target)` in whole pods.
  *
  * - **Scale out** takes effect after `scaleUpDelay` seconds (provisioning time). While a scale-out is
  *   pending, only a larger desired value schedules another.
  * - **Scale in** is immediate but only allowed `scaleDownCooldown` seconds after the last scaling
  *   change, so a brief lull does not shed capacity that a spike needs a minute later.
+ * - With `scaleDownStabilisation` set, scale in follows the Kubernetes HPA rule instead of the cooldown:
+ *   scale in to the highest desired value of the last `scaleDownStabilisation` seconds.
  *
  * Because saturation caps measured busy workers at the current limit, a saturated pool grows by
  * a factor of `1 / targetUtilisation` per evaluation until demand is met.
@@ -37,6 +40,8 @@ export class Autoscaler extends LinkedComponent {
       { key: "maxConcurrency", type: "integer", unit: "dimensionless", min: 1, required: true, description: "Never scale above this." },
       { key: "scaleUpDelay", type: "number", unit: "time", min: 0, default: 0, required: false, description: "Seconds before added capacity becomes available." },
       { key: "scaleDownCooldown", type: "number", unit: "time", min: 0, default: 300, required: false, description: "Minimum seconds since the last scaling change before scaling in." },
+      { key: "scaleDownStabilisation", type: "number", unit: "time", min: 0, required: false, description: "Kubernetes HPA scale-down stabilisation window (seconds): scale in to the highest desired value within this window. Replaces scaleDownCooldown when set." },
+      { key: "step", type: "integer", unit: "dimensionless", min: 1, default: 1, required: false, description: "Scale in whole multiples of this many workers (e.g. requests per pod)." },
     ],
     links: [{ key: "target", description: "The WorkerPool to scale.", required: true, accepts: "scalable" }],
     outputs: [
@@ -52,6 +57,10 @@ export class Autoscaler extends LinkedComponent {
   private readonly max: number;
   private readonly upDelayTicks: number;
   private readonly cooldownTicks: number;
+  private readonly stabilisationTicks: number | undefined;
+  private readonly step: number;
+  /** [tick, desired] of each evaluation inside the stabilisation window, oldest first. */
+  private readonly recommendations: [number, number][] = [];
   private pool: Scalable | null = null;
   private lastBusyTicks = 0;
   private lastEvalTick: number;
@@ -71,6 +80,9 @@ export class Autoscaler extends LinkedComponent {
     this.max = Math.max(this.min, i["maxConcurrency"] as number);
     this.upDelayTicks = k.secondsToTicks(i["scaleUpDelay"] as number);
     this.cooldownTicks = k.secondsToTicks(i["scaleDownCooldown"] as number);
+    const window = i["scaleDownStabilisation"] as number | undefined;
+    this.stabilisationTicks = window === undefined ? undefined : k.secondsToTicks(window);
+    this.step = i["step"] as number;
     this.lastEvalTick = k.currentTick;
   }
 
@@ -96,9 +108,20 @@ export class Autoscaler extends LinkedComponent {
     this.lastBusyTicks = busyTicks;
     this.lastEvalTick = now;
 
-    const desired = Math.min(this.max, Math.max(this.min, Math.ceil(averageBusy / this.targetUtilisation - 1e-9)));
+    const steps = Math.ceil(averageBusy / this.targetUtilisation / this.step - 1e-9);
+    const desired = Math.min(this.max, Math.max(this.min, steps * this.step));
     this.desired = desired;
     const current = pool.concurrency;
+    let scaleInTo = desired;
+    let scaleInAllowed = now - this.lastChangeTick >= this.cooldownTicks;
+    if (this.stabilisationTicks !== undefined) {
+      // Like the HPA: keep recommendations newer than now - window and scale in to their maximum.
+      const recs = this.recommendations;
+      recs.push([now, desired]);
+      while ((recs[0] as [number, number])[0] <= now - this.stabilisationTicks && recs.length > 1) recs.shift();
+      scaleInTo = Math.max(...recs.map((r) => r[1]));
+      scaleInAllowed = true;
+    }
     if (desired > Math.max(current, this.pendingTarget)) {
       this.pendingTarget = desired;
       this.setState("ScalingOut");
@@ -111,9 +134,9 @@ export class Autoscaler extends LinkedComponent {
         this.pendingTarget = pool.concurrency;
         this.setState("Idle");
       });
-    } else if (desired < current && this.pendingTarget <= current && now - this.lastChangeTick >= this.cooldownTicks) {
-      pool.setConcurrency(desired);
-      this.pendingTarget = desired;
+    } else if (scaleInTo < current && this.pendingTarget <= current && scaleInAllowed) {
+      pool.setConcurrency(scaleInTo);
+      this.pendingTarget = scaleInTo;
       this.scaleIns++;
       this.lastChangeTick = now;
     }

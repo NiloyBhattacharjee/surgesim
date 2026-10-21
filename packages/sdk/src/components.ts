@@ -57,7 +57,7 @@ export const SPECS = {
     outputs: ["NumberAllowed", "NumberRejected", "RejectionFraction", "Tokens"],
   },
   Autoscaler: {
-    inputs: ["targetUtilisation", "evaluationInterval", "minConcurrency", "maxConcurrency", "scaleUpDelay", "scaleDownCooldown"],
+    inputs: ["targetUtilisation", "evaluationInterval", "minConcurrency", "maxConcurrency", "scaleUpDelay", "scaleDownCooldown", "scaleDownStabilisation", "step"],
     links: ["target"],
     outputs: ["ScaleOuts", "ScaleIns", "DesiredConcurrency"],
   },
@@ -161,6 +161,10 @@ export interface AutoscalerProps extends Common {
   maxConcurrency: number;
   scaleUpDelay?: number;
   scaleDownCooldown?: number;
+  /** Kubernetes HPA scale-down stabilisation window (seconds); replaces scaleDownCooldown when set. */
+  scaleDownStabilisation?: number;
+  /** Scale in whole multiples of this many workers (e.g. requests per pod). */
+  step?: number;
   /** The WorkerPool to scale. */
   target: Ref;
 }
