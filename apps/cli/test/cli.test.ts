@@ -550,6 +550,37 @@ services:
   });
 });
 
+describe("examples/kubernetes: a 4x spike, the HPA lag, and recovery", () => {
+  const shop = readFileSync(join(examplesDir, "kubernetes", "shop.yaml"), "utf8");
+  const overlay = readFileSync(join(examplesDir, "kubernetes", "overlay.yaml"), "utf8");
+  const simulate = async (extra: string[]) => {
+    const h = harness({ "shop.yaml": shop, "overlay.yaml": overlay });
+    expect(await h.call(["import", "shop.yaml", "--overlay", "overlay.yaml", "--out", "m.json", "--duration", "1200", "--replications", "2", ...extra])).toBe(EXIT_OK);
+    expect(await h.call(["run", "m.json", "--json", "r.json"])).toBe(EXIT_OK);
+    const r = JSON.parse(h.fs.files.get("r.json")!);
+    const mean = (id: string) => r.outputs.find((o: { id: string }) => o.id === id).mean as number;
+    return { r, mean, series: (id: string) => r.timeSeries.replications[0].values[id] as number[] };
+  };
+
+  it("the frontend saturates until new pods are ready, scales to its maximum, then scales back in", async () => {
+    const { mean, series } = await simulate([]);
+    const pods = series("web-frontend.Concurrency").map((c) => c / 20); // samples every 5 s
+    expect(pods[300 / 5]).toBeLessThanOrEqual(3); // before the spike
+    expect(Math.max(...pods)).toBe(12); // maxReplicas
+    expect(pods[pods.length - 1]).toBeLessThanOrEqual(3); // after the stabilisation window
+    expect(mean("web-frontend.NumberThrottled")).toBe(0); // requests wait, nothing is dropped
+    expect(mean("web-frontend-queue.MaxQueueLength")).toBeGreaterThan(2000);
+    expect(mean("completed.p99")).toBeGreaterThan(5);
+  });
+
+  it("faster pod startup shrinks the backlog and p99", async () => {
+    const slow = await simulate([]);
+    const fast = await simulate(["--startup-delay", "5"]);
+    expect(fast.mean("web-frontend-queue.MaxQueueLength")).toBeLessThan(slow.mean("web-frontend-queue.MaxQueueLength") * 0.7);
+    expect(fast.mean("completed.p99")).toBeLessThan(slow.mean("completed.p99") * 0.7);
+  });
+});
+
 describe("model module load errors give actionable hints", () => {
   const failing = (message: string) => async () => {
     throw new Error(message);

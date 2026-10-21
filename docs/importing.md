@@ -188,3 +188,46 @@ traffic of their own unless `entry` names them.
 Service times and call probabilities can come from real data: `surgesim fit` ([calibration](calibration.md)) fits a
 distribution to measured durations, such as span durations exported from OpenTelemetry or Jaeger traces, and
 `surgesim fit-arrivals` turns request timestamps into a `rateProfile`.
+
+## Example: will the HPA keep up?
+
+[`examples/kubernetes/shop.yaml`](../examples/kubernetes/shop.yaml) has three Deployments: `web-frontend` (2 to 12 pods,
+50% CPU target, 30 s readiness delay), `orders-api` (3 to 15 pods, 60%, 120 s scale-down window) and `payments` (2 pods,
+no HPA). [`overlay.yaml`](../examples/kubernetes/overlay.yaml) sends 100 requests/s to the frontend with a 4x spike from
+5 to 10 minutes; 60% of requests call orders and 30% of those call payments.
+
+```bash
+surgesim import examples/kubernetes/shop.yaml --overlay examples/kubernetes/overlay.yaml --duration 1200 --out shop.json
+surgesim run shop.json --html shop.html
+```
+
+What happens to the frontend (one replication, pods = `Concurrency` / 20):
+
+| Time | Pods | What is going on |
+|---|---|---|
+| 0:00 to 5:00 | 2, then 3 | 100/s keeps about 20 request slots busy, just over 50% of 2 pods, so the HPA adds a third in the first minute |
+| 5:00 | 3 | traffic jumps to 400/s; every slot is busy and the queue grows |
+| 5:15 | 3 | the HPA's first decision after the spike: 6 pods, ready 30 s later |
+| 6:00 | 6 | still saturated, so the HPA asks for 12 (its maximum) |
+| 6:30 | 12 | the backlog (peak about 4,500 requests) drains in seconds |
+| 10:00 to 15:00 | 12 to 3 | traffic is back to 100/s, but the 5-minute stabilisation window keeps pods until the spike's recommendations age out |
+
+Across the run p99 is about 10.6 s, against about 0.3 s at the median. Nothing is dropped: requests wait in the queue.
+`web-frontend.Cost` is the pod-hours the HPA spent.
+
+**What if pods were ready in 5 s instead of 30?** Import again with `--startup-delay 5` and compare:
+
+```bash
+surgesim import examples/kubernetes/shop.yaml --overlay examples/kubernetes/overlay.yaml --duration 1200 --startup-delay 5 --out fast.json
+surgesim compare shop.json fast.json --label-a "30 s readiness" --label-b "5 s startup" --html compare.html
+```
+
+| Output | 30 s readiness | 5 s startup | |
+|---|---|---|---|
+| `completed.p99` | 10.6 s | 4.4 s | −59%, p < 0.001 |
+| `completed.p95` | 7.5 s | 1.4 s | −82%, p < 0.001 |
+| `web-frontend-queue.MaxQueueLength` | 4,462 | 1,932 | −57%, p < 0.001 |
+
+The same approach answers "is `minReplicas: 2` enough?" or "what if the target were 30%?": edit the manifest, import
+both, and `compare`. These numbers come from the overlay's invented traffic and service times; replace them with
+measurements before drawing conclusions about a real cluster.

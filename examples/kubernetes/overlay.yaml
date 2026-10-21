@@ -1,0 +1,21 @@
+# What the manifests cannot say: how much traffic arrives, how long requests take, which service calls which.
+# Seconds and requests per second; service times use the model format's distributions.
+traffic:
+  entry: web
+  # 100 requests/s, a 4x spike from 5 to 10 minutes, then back to normal.
+  rateProfile: [[0, 100], [300, 400], [600, 100]]
+
+services:
+  web:
+    concurrencyPerPod: 20
+    serviceTime: { dist: lognormal, mean: 0.2, stdDev: 0.08 }
+    calls:
+      - { service: orders, probability: 0.6 } # the rest are page views that finish at the frontend
+  orders:
+    concurrencyPerPod: 10
+    serviceTime: { dist: lognormal, mean: 0.1, stdDev: 0.05 }
+    calls:
+      - { service: payments, probability: 0.3 }
+  payments:
+    concurrencyPerPod: 10
+    serviceTime: { dist: lognormal, mean: 0.15, stdDev: 0.05 }
