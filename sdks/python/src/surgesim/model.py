@@ -190,6 +190,11 @@ class Model:
         each passing its filter with the matching ``filter_probabilities`` entry (default: all pass)."""
         return self._make("Topic", name, props)
 
+    def branch(self, name: str, **props: Any) -> Component:
+        """Probabilistic router: sends each entity to one component in ``targets=[...]``, chosen with the
+        matching ``probabilities`` entry (they must add up to 1)."""
+        return self._make("Branch", name, props)
+
     def custom(self, type: str, name: str, inputs: Optional[Dict[str, Any]] = None, links: Optional[Dict[str, Component]] = None) -> Component:  # noqa: A002
         """Add a component of any type, including ones from a custom engine registry."""
         if name in self._components:

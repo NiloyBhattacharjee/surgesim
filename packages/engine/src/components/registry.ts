@@ -2,6 +2,7 @@ import type { ComponentInit, LinkedComponent, SimContext } from "../model/index.
 import type { ComponentSchema } from "../schema/index.js";
 import { EntityGenerator } from "./generator.js";
 import { Autoscaler } from "./autoscaler.js";
+import { Branch } from "./branch.js";
 import { MessageQueue } from "./message-queue.js";
 import { Queue } from "./queue.js";
 import { RateLimiter } from "./rate-limiter.js";
@@ -53,5 +54,6 @@ export function createDefaultRegistry(): ComponentRegistry {
     .register(RetryPolicy)
     .register(RateLimiter)
     .register(Autoscaler)
-    .register(Topic);
+    .register(Topic)
+    .register(Branch);
 }

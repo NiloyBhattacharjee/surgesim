@@ -35,6 +35,8 @@ export interface InputSpec {
   requiredWhen?: { input: string; equals: unknown };
   /** For a `numberList`: the key of a `multiple` link it must have one entry per target of. */
   lengthOf?: string;
+  /** For a `numberList`: the entries must add up to this (within 1e-9), e.g. 1 for probabilities. */
+  sum?: number;
 }
 
 /** Declares one output (statistic) of a component. Pure data except for the getter. */

@@ -66,6 +66,11 @@ export const SPECS = {
     links: ["subscribers"],
     outputs: ["NumberPublished", "NumberDelivered", "NumberFiltered"],
   },
+  Branch: {
+    inputs: ["probabilities"],
+    links: ["targets"],
+    outputs: ["NumberRouted"],
+  },
 } as const;
 
 type Spec = typeof SPECS;
@@ -170,4 +175,11 @@ export interface TopicProps extends Common {
   subscribers: Ref[];
   /** One probability per subscriber that a copy passes its filter policy (default: all pass). */
   filterProbabilities?: number[];
+}
+
+export interface BranchProps extends Common {
+  /** Each entity goes to exactly one target. */
+  targets: Ref[];
+  /** One probability per target, adding up to 1. */
+  probabilities: number[];
 }

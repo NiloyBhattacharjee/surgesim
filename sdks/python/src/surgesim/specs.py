@@ -64,4 +64,9 @@ SPECS = {
         "links": ["subscribers"],
         "outputs": ["NumberPublished", "NumberDelivered", "NumberFiltered"],
     },
+    "Branch": {
+        "inputs": ["probabilities"],
+        "links": ["targets"],
+        "outputs": ["NumberRouted"],
+    },
 }

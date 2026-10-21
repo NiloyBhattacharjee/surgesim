@@ -355,6 +355,42 @@ describe("Topic: fan-out", () => {
   });
 });
 
+describe("Branch: probabilistic routing", () => {
+  const branch = (probabilities: unknown, targets: unknown = ["a", "b"]): Comp => ({ type: "Branch", name: "branch", inputs: { probabilities }, links: { targets } });
+
+  it("routes each entity to exactly one target (binomial: 20000 x 0.3)", () => {
+    const r = run(model([gen("gen", "branch", { interArrivalTime: 0.001, maxNumber: 20_000 }), branch([0.3, 0.7]), sink("a"), sink("b")]));
+    expect(val(r, "branch.NumberRouted")).toBe(20_000);
+    expect(val(r, "a.count")! + val(r, "b.count")!).toBe(20_000);
+    // sd = sqrt(20000 * 0.3 * 0.7) ~ 65; allow 4 sd
+    expect(Math.abs(val(r, "a.count")! - 6000)).toBeLessThan(260);
+  });
+
+  it("moves the entity instead of copying it, so latency downstream is end to end", () => {
+    const r = run(
+      model([
+        gen("gen", "pool", { interArrivalTime: 1, maxNumber: 10 }),
+        { type: "WorkerPool", name: "pool", inputs: { concurrency: 100, serviceTime: 2 }, links: { next: "branch" } },
+        branch([0, 1]),
+        sink("a"),
+        sink("b"),
+      ]),
+    );
+    expect(val(r, "a.count")).toBe(0);
+    expect(val(r, "b.count")).toBe(10);
+    expect(val(r, "b.mean")).toBeCloseTo(2, 9);
+  });
+
+  it("validates one probability per target, adding up to 1", () => {
+    const keysOf = (c: Comp) => errorsOf([c, sink("a"), sink("b")]).map((e) => `${e.key}: ${e.message}`);
+    expect(keysOf(branch([0.6, 0.3]))[0]).toContain("probabilities: entries must add up to 1, got 0.9");
+    expect(keysOf(branch([1]))[0]).toContain("must have one entry per targets target (2), got 1");
+    expect(keysOf(branch([1.5, -0.5]))[0]).toContain("entry 0 must be <= 1");
+    expect(keysOf({ type: "Branch", name: "branch", links: { targets: ["a"] } })[0]).toContain("probabilities: required input is missing");
+    expect(errorsOf([branch([0.1, 0.2, 0.7], ["a", "b", "a2"]), sink("a"), sink("b"), sink("a2")])).toEqual([]);
+  });
+});
+
 describe("cloud components: composition, determinism and validation", () => {
   const stormy = model(
     [
