@@ -222,6 +222,8 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
 
   // --- deployments
   const pools = new Map<K8sObject, Component<string>>();
+  /** Where a Deployment's requests arrive: its queue. Sending them to the pool itself would reject them when it is full. */
+  const queues = new Map<K8sObject, Component<string>>();
   let probeDelays = false;
   for (const d of deployments) {
     const name = baseName(d);
@@ -253,6 +255,7 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
       queue,
     });
     pools.set(d, pool);
+    queues.set(d, queue);
     note(d, pool, [...notes, `${replicas} pod(s) x ${perPod} concurrent requests each`, "Cost is in pod-hours"]);
 
     const behavior = at(hpa?.raw, "spec", "behavior");
@@ -308,7 +311,7 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
       continue;
     }
     const rest = 1 - list.reduce((a, c) => a + c.probability, 0);
-    const targets = [...list.map((c) => pools.get(c.to) as Component<string>), ...(rest > 1e-9 ? [completed] : [])];
+    const targets = [...list.map((c) => queues.get(c.to) as Component<string>), ...(rest > 1e-9 ? [completed] : [])];
     const probabilities = [...list.map((c) => c.probability), ...(rest > 1e-9 ? [rest] : [])];
     pool.link("next", model.branch(unique(`${pool.name}-calls`), { targets, probabilities }));
   }
@@ -333,7 +336,7 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
   const rateProfile = options.rateProfile ?? [[0, options.ratePerSecond ?? 10]];
   for (const d of new Set(entries)) {
     const pool = pools.get(d) as Component<string>;
-    model.entityGenerator(unique(`traffic-${pool.name}`), { mode: "rateProfile", rateProfile, next: pool });
+    model.entityGenerator(unique(`traffic-${pool.name}`), { mode: "rateProfile", rateProfile, next: queues.get(d) as Component<string> });
   }
 
   model.sampleEvery(5, deployments.flatMap((d) => {
