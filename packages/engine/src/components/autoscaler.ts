@@ -59,8 +59,12 @@ export class Autoscaler extends LinkedComponent {
   private readonly cooldownTicks: number;
   private readonly stabilisationTicks: number | undefined;
   private readonly step: number;
-  /** [tick, desired] of each evaluation inside the stabilisation window, oldest first. */
-  private readonly recommendations: [number, number][] = [];
+  /**
+   * Monotonic deque of [tick, desired] recommendations inside the stabilisation window: oldest first,
+   * desired strictly decreasing, so the window maximum is at `head`. Entries before `head` are expired.
+   */
+  private recommendations: [number, number][] = [];
+  private head = 0;
   private pool: Scalable | null = null;
   private lastBusyTicks = 0;
   private lastEvalTick: number;
@@ -99,6 +103,23 @@ export class Autoscaler extends LinkedComponent {
     this.ctx.kernel.schedule(this.intervalTicks, Priority.LOW, () => this.evaluate());
   }
 
+  /**
+   * Like the HPA: the highest recommendation newer than `now - window`, always including this one.
+   * Amortised O(1) per evaluation, however long the window.
+   */
+  private windowMax(now: number, desired: number, window: number): number {
+    const recs = this.recommendations;
+    // A newer recommendation at least as high makes older, lower ones irrelevant for the rest of their life.
+    while (recs.length > this.head && (recs[recs.length - 1] as [number, number])[1] <= desired) recs.pop();
+    recs.push([now, desired]);
+    while ((recs[this.head] as [number, number])[0] <= now - window && recs.length - this.head > 1) this.head++;
+    if (this.head > 1024 && this.head * 2 > recs.length) {
+      this.recommendations = recs.slice(this.head);
+      this.head = 0;
+    }
+    return (this.recommendations[this.head] as [number, number])[1];
+  }
+
   private evaluate(): void {
     const pool = this.pool as Scalable;
     const k = this.ctx.kernel;
@@ -115,11 +136,7 @@ export class Autoscaler extends LinkedComponent {
     let scaleInTo = desired;
     let scaleInAllowed = now - this.lastChangeTick >= this.cooldownTicks;
     if (this.stabilisationTicks !== undefined) {
-      // Like the HPA: keep recommendations newer than now - window and scale in to their maximum.
-      const recs = this.recommendations;
-      recs.push([now, desired]);
-      while ((recs[0] as [number, number])[0] <= now - this.stabilisationTicks && recs.length > 1) recs.shift();
-      scaleInTo = Math.max(...recs.map((r) => r[1]));
+      scaleInTo = this.windowMax(now, desired, this.stabilisationTicks);
       scaleInAllowed = true;
     }
     if (desired > Math.max(current, this.pendingTarget)) {

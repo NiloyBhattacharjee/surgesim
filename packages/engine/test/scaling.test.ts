@@ -151,6 +151,37 @@ describe("Autoscaler", () => {
     expect(c[151]).toBe(1);
   });
 
+  it.each([4, 20])("scaleDownStabilisation %i s matches a brute-force window maximum under noisy load", (window) => {
+    // Evaluations at even seconds, samples at every second: at odd t+1, DesiredConcurrency is the decision made
+    // at t, and Concurrency at t-1 / t+1 is before / after it. The window holds the decisions at t-window+2 .. t.
+    // The 4 s window expires its maximum about every other evaluation, so the deque compacts mid-run.
+    const r = run(
+      scaled(
+        { targetUtilisation: 0.5, evaluationInterval: 2, maxConcurrency: 60, scaleDownStabilisation: window },
+        { arrival: { interArrivalTime: { dist: "exponential", mean: 0.1 } }, service: { dist: "exponential", mean: 1 }, duration: 10_000, series: true },
+      ),
+    );
+    const desired = series(r, "scaler.DesiredConcurrency") as number[];
+    const c = series(r, "pool.Concurrency") as number[];
+    let checked = 0;
+    for (let t = window; t + 1 < c.length; t += 2) {
+      const before = c[t - 1]!;
+      if (desired[t + 1]! > before) continue; // a scale-out, not governed by the window
+      const windowMax = Math.max(...[...Array(window / 2).keys()].map((j) => desired[t + 1 - 2 * j]!));
+      expect(c[t + 1]).toBe(Math.min(before, windowMax));
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(2000);
+  });
+
+  it("a one-day stabilisation window with 1 s evaluations stays fast (no rescanning the history)", () => {
+    // 172,800 evaluations; rescanning a day of history each time would be ~1e10 visits.
+    const start = Date.now();
+    const r = run(scaled({ evaluationInterval: 1, scaleDownStabilisation: 86_400 }, { arrival: { interArrivalTime: 1e9 }, duration: 2 * 86_400 }));
+    expect(val(r, "pool.Concurrency")).toBe(1);
+    expect(Date.now() - start).toBeLessThan(3000);
+  });
+
   it("autoscaling relieves an overloaded pool: lower mean time in system than a fixed single worker", () => {
     const fixed = run(model([gen("gen", "q", { interArrivalTime: 0.2 }), { type: "Queue", name: "q" }, { type: "WorkerPool", name: "pool", inputs: { concurrency: 1, serviceTime: 1 }, links: { queue: "q", next: "sink" } }, sink("sink")], { duration: 200 }));
     const auto = run(scaled({ targetUtilisation: 0.6, evaluationInterval: 10 }, { arrival: { interArrivalTime: 0.2 }, duration: 200 }));
