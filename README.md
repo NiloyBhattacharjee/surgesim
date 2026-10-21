@@ -179,6 +179,7 @@ in TypeScript.
 | `RateLimiter` | token bucket |
 | `Autoscaler` | target-tracking scaling with provisioning delay and scale-in cooldown |
 | `Topic` | SNS-style fan-out: a copy of each message to every subscriber, with per-subscription filter probabilities |
+| `Branch` | probabilistic routing: each entity goes to one target (e.g. 60% of requests call a downstream service) |
 
 Every input, link and output is documented in [docs/model-format.md](docs/model-format.md), and `surgesim schema`
 prints the machine-readable form.

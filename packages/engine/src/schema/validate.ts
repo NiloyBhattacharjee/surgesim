@@ -76,6 +76,10 @@ function checkValue(spec: InputSpec, v: unknown): string | null {
         const bad = checkBounds(spec, x);
         if (bad) return `entry ${i} ${bad}`;
       }
+      if (spec.sum !== undefined) {
+        const total = (v as number[]).reduce((a, b) => a + b, 0);
+        if (Math.abs(total - spec.sum) > 1e-9) return `entries must add up to ${spec.sum}, got ${+total.toPrecision(12)}`;
+      }
       return null;
     }
   }

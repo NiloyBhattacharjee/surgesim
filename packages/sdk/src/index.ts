@@ -17,4 +17,5 @@ export type {
   RateLimiterProps,
   AutoscalerProps,
   TopicProps,
+  BranchProps,
 } from "./components.js";

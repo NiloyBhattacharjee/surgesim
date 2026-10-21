@@ -16,6 +16,7 @@ const LOOK: Record<string, [label: string, kind: string, name: string]> = {
   WorkerPool: ["Worker pool", "worker", "workers"],
   Autoscaler: ["Autoscaler", "control", "autoscaler"],
   Topic: ["Topic (SNS)", "queue", "topic"],
+  Branch: ["Branch", "control", "branch"],
   EntitySink: ["Done (sink)", "sink", "done"],
 };
 const look = (type: string): [string, string, string] => LOOK[type] ?? [type, "control", type[0]!.toLowerCase() + type.slice(1)];
@@ -53,6 +54,7 @@ function starter(spec: InputSpec): unknown {
   if (spec.type === "enum") return spec.options?.[0];
   if (spec.type === "boolean") return false;
   if (spec.type === "string") return "";
+  if (spec.type === "numberList") return [1];
   return Math.max(spec.min ?? 1, 1);
 }
 

@@ -2,6 +2,7 @@ import { Component, ModelBuildError, type BuildProblem, type ComponentJson } fro
 import {
   SPECS,
   type AutoscalerProps,
+  type BranchProps,
   type EntityGeneratorProps,
   type EntitySinkProps,
   type MessageQueueProps,
@@ -147,6 +148,11 @@ export class Model {
   /** Pub/sub fan-out (SNS-style): copies each entity to every subscriber. */
   topic(name: string, props: TopicProps): Component<OutputOf<"Topic">> {
     return this.make("Topic", name, props);
+  }
+
+  /** Probabilistic router: sends each entity to one target, chosen with the given probabilities. */
+  branch(name: string, props: BranchProps): Component<OutputOf<"Branch">> {
+    return this.make("Branch", name, props);
   }
 
   /**

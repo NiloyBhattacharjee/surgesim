@@ -252,9 +252,24 @@ fraction of messages); filter draws use the topic's own RNG stream.
 Link: `subscribers` (a **list**, role `receiver`, **required**). Outputs: `NumberPublished`, `NumberDelivered`,
 `NumberFiltered`.
 
+### `Branch` — role `receiver`
+Probabilistic router. Each entity goes to exactly one target, instantly: target `i` with probability
+`probabilities[i]`. Unlike a `Topic` it moves the entity instead of copying it. Use it for a call graph where only
+some requests call a downstream service (route the rest to an `EntitySink`). Draws use the branch's own RNG stream.
+
+```json
+{ "type": "Branch", "name": "frontend-calls", "inputs": { "probabilities": [0.6, 0.4] }, "links": { "targets": ["orders-api", "done"] } }
+```
+
+| Input | Type | Default | |
+|---|---|---|---|
+| `probabilities` | list of numbers in [0, 1], one per target, adding up to 1 | **required** | Chance an entity goes to each target. |
+
+Link: `targets` (a **list**, role `receiver`, **required**). Output: `NumberRouted`.
+
 ### Roles
 `Queue` has roles `receiver`, `queue`, `pullable`; `MessageQueue` has `receiver`, `pullable`; `WorkerPool` has
-`receiver`, `scalable`; `Topic` has `receiver`. `Server.queue` needs role `queue` (so a plain `Queue`); `WorkerPool.queue` needs `pullable`
+`receiver`, `scalable`; `Topic` and `Branch` have `receiver`. `Server.queue` needs role `queue` (so a plain `Queue`); `WorkerPool.queue` needs `pullable`
 (either); `Autoscaler.target` needs `scalable`.
 
 ## Assertions
