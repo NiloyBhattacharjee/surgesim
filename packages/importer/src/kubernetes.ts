@@ -95,13 +95,14 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
   const rate = options.ratePerSecond ?? 10;
   const serviceTime: Sampler = options.serviceTime ?? dist.exponential(0.2);
   const perPod = options.concurrencyPerPod ?? 10;
+  const duration = options.duration ?? 600;
   if (options.ratePerSecond === undefined) assumptions.push(`Traffic: ${rate} requests/second at each entry point (manifests do not describe traffic; set ratePerSecond).`);
   if (options.serviceTime === undefined) assumptions.push("Service time: exponential with mean 0.2 s for every Deployment (manifests do not describe how long requests take; set serviceTime).");
   if (options.concurrencyPerPod === undefined) assumptions.push(`Each pod serves ${perPod} requests at once (set concurrencyPerPod).`);
   warnings.push("Each Deployment's pods share one queue (an ideal load balancer); per-pod round-robin queues would do somewhat worse.");
 
   const model = new Model(options.name ?? "Imported Kubernetes manifests", {
-    duration: options.duration ?? 600,
+    duration,
     warmUp: options.warmUp ?? 0,
     seed: options.seed ?? 1,
     replications: options.replications ?? 5,
@@ -163,21 +164,33 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
     pools.set(d, pool);
     note(d, pool, [...notes, `${replicas} pod(s) x ${perPod} concurrent requests each`, "Cost is in pod-hours"]);
 
-    if (hpa) {
-      const hn: string[] = [`${min} to ${max} pods`];
+    const behavior = at(hpa?.raw, "spec", "behavior");
+    const upOff = at(behavior, "scaleUp", "selectPolicy") === "Disabled";
+    const downOff = at(behavior, "scaleDown", "selectPolicy") === "Disabled";
+    if (hpa && upOff && downOff) {
+      note(hpa, pool, ["scaling disabled in both directions (selectPolicy: Disabled): replicas stay fixed"]);
+    } else if (hpa) {
+      // selectPolicy: Disabled forbids one direction. Scale-down off is exact: never below the starting size, and a
+      // window as long as the run always holds a recommendation at least as high as the current size.
+      const lo = downOff ? replicas : min;
+      const hi = upOff ? replicas : max;
+      const window = downOff ? duration : (num(at(behavior, "scaleDown", "stabilizationWindowSeconds")) ?? 300);
+      const hn: string[] = [`${lo} to ${hi} pods`];
       const target = hpaTarget(hpa, warnings, hn);
-      const behavior = at(hpa.raw, "spec", "behavior");
-      const window = num(at(behavior, "scaleDown", "stabilizationWindowSeconds")) ?? 300;
-      if ((num(at(behavior, "scaleUp", "stabilizationWindowSeconds")) ?? 0) > 0) warnings.push(`${hpa.id}: the scale-up stabilisation window is not modelled.`);
-      if (at(behavior, "scaleUp", "policies") !== undefined || at(behavior, "scaleDown", "policies") !== undefined) {
+      if (upOff) {
+        warnings.push(`${hpa.id}: scaleUp selectPolicy Disabled is approximated by capping at the starting ${replicas} pod(s); after scaling in, the model can scale back up to that, which the HPA would not.`);
+      } else if ((num(at(behavior, "scaleUp", "stabilizationWindowSeconds")) ?? 0) > 0) {
+        warnings.push(`${hpa.id}: the scale-up stabilisation window is not modelled.`);
+      }
+      if ((!upOff && at(behavior, "scaleUp", "policies") !== undefined) || (!downOff && at(behavior, "scaleDown", "policies") !== undefined)) {
         warnings.push(`${hpa.id}: scaling rate policies (pods or percent per period) are not modelled; scaling is limited only by min/max.`);
       }
-      hn.push(`new pods take traffic after ${startup} s`, `scale-down stabilisation ${window} s`);
+      hn.push(`new pods take traffic after ${startup} s`, downOff ? "scale-down disabled (selectPolicy: Disabled)" : `scale-down stabilisation ${window} s`);
       const scaler = model.autoscaler(unique(`${name}-hpa`), {
         targetUtilisation: target,
         evaluationInterval: 15,
-        minConcurrency: min * perPod,
-        maxConcurrency: max * perPod,
+        minConcurrency: lo * perPod,
+        maxConcurrency: hi * perPod,
         step: perPod,
         scaleUpDelay: startup,
         scaleDownStabilisation: window,
@@ -195,7 +208,7 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
 
   // --- services: which Deployment each one routes to
   const behindService = new Set<K8sObject>();
-  const byServiceName = new Map<string, K8sObject>();
+  const services: { s: K8sObject; d: K8sObject }[] = [];
   for (const s of ofKind("Service")) {
     const selector = at(s.raw, "spec", "selector");
     const matches = isRecord(selector) && Object.keys(selector).length > 0
@@ -208,7 +221,7 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
     }
     if (matches.length > 1) warnings.push(`${s.id}: its selector matches ${matches.length} Deployments; only ${d.id} is modelled behind it.`);
     behindService.add(d);
-    byServiceName.set(s.name, d);
+    services.push({ s, d });
     note(s, pools.get(d) as Component<string>, [`routes to ${d.id}`]);
   }
 
@@ -216,9 +229,14 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
   let entries: K8sObject[];
   if (options.entry) {
     entries = [];
+    const named = (o: K8sObject, want: string) => want === o.name || want === `${o.namespace}/${o.name}`;
     for (const want of options.entry) {
-      const d = byServiceName.get(want) ?? deployments.find((x) => x.name === want || pools.get(x)?.name === want);
-      if (d) entries.push(d);
+      const found = [...new Set([
+        ...services.filter((x) => named(x.s, want)).map((x) => x.d),
+        ...deployments.filter((x) => named(x, want) || pools.get(x)?.name === want),
+      ])];
+      if (found.length === 1) entries.push(found[0] as K8sObject);
+      else if (found.length > 1) warnings.push(`entry "${want}" is ambiguous (${found.map((d) => d.id).join(", ")}); write it as namespace/name. Ignored.`);
       else warnings.push(`entry "${want}" is not a Service or Deployment in these manifests; ignored.`);
     }
     if (entries.length === 0) warnings.push("no entry point found: the model has no traffic.");

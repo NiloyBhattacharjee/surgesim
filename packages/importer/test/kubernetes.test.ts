@@ -223,6 +223,39 @@ describe("importKubernetes: options and edge cases", () => {
     expect(comp(mem, "web-frontend-hpa")!.inputs!["targetUtilisation"]).toBe(0.7);
   });
 
+  it("selectPolicy Disabled: scale-down off never scales in; scale-up off caps at the start; both off means no autoscaler", () => {
+    const off = (dir: "scaleUp" | "scaleDown") => ({ [dir]: { selectPolicy: "Disabled", policies: [{ type: "Pods", value: 1, periodSeconds: 60 }] } });
+    const down = imported([deployment("web-frontend", 3), hpa({ minReplicas: 1, maxReplicas: 10, behavior: off("scaleDown") })], { concurrencyPerPod: 10, duration: 900 });
+    expect(comp(down, "web-frontend-hpa")!.inputs).toMatchObject({ minConcurrency: 30, maxConcurrency: 100, scaleDownStabilisation: 900 });
+    expect(down.warnings.join("\n")).not.toMatch(/rate policies/); // only the disabled direction has policies
+    // Idle for an hour: with scale-down allowed it drops to 1 pod; disabled, it keeps all 3.
+    const idle = (behavior: object) => {
+      const r = imported([deployment("web-frontend", 3), hpa({ minReplicas: 1, maxReplicas: 10, behavior })], { ratePerSecond: 0.001, duration: 3600, replications: 1 });
+      return simulate(r).timeSeries!.replications[0]!.values["web-frontend.Concurrency"]!;
+    };
+    expect(new Set(idle(off("scaleDown")))).toEqual(new Set([30]));
+    expect(idle({}).at(-1)).toBe(10);
+
+    const up = imported([deployment("web-frontend", 3), hpa({ minReplicas: 1, maxReplicas: 10, behavior: off("scaleUp") })], { concurrencyPerPod: 10 });
+    expect(comp(up, "web-frontend-hpa")!.inputs).toMatchObject({ minConcurrency: 10, maxConcurrency: 30, scaleDownStabilisation: 300 });
+    expect(up.warnings.join("\n")).toMatch(/scaleUp selectPolicy Disabled is approximated by capping at the starting 3 pod/);
+
+    const both = imported([deployment("web-frontend", 3), hpa({ behavior: { ...off("scaleUp"), ...off("scaleDown") } })]);
+    expect(both.model.components.some((c) => c.type === "Autoscaler")).toBe(false);
+    expect(both.mapped.find((m) => m.type === "HorizontalPodAutoscaler")!.notes[0]).toMatch(/replicas stay fixed/);
+  });
+
+  it("entry names that match in several namespaces are rejected as ambiguous; namespace/name picks one", () => {
+    const inNs = (o: Record<string, any>, namespace: string) => ({ ...o, metadata: { ...o["metadata"], namespace } });
+    const svc = { kind: "Service", metadata: { name: "api" }, spec: { selector: { app: "api" } } };
+    const objs = [inNs(deployment("api"), "prod"), inNs(svc, "prod"), inNs(deployment("api"), "staging"), inNs(svc, "staging")];
+    const r = imported(objs, { entry: ["api", "staging/api"] });
+    expect(r.warnings.join("\n")).toMatch(/entry "api" is ambiguous \(prod\/Deployment\/api, staging\/Deployment\/api\); write it as namespace\/name/);
+    expect(r.model.components.filter((c) => c.type === "EntityGenerator").map((c) => c.links!["next"])).toEqual(["staging-api"]);
+    // A Service and the Deployment it selects, sharing a name, are one match, not an ambiguity.
+    expect(imported(objs, { entry: ["prod/api"] }).warnings.join("\n")).not.toMatch(/ambiguous/);
+  });
+
   it("skips HPAs and Services it cannot connect, with a warning", () => {
     const r = imported([
       deployment("a"),

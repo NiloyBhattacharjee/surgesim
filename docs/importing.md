@@ -101,11 +101,13 @@ and `BusyWorkers` every 5 s, so the report shows whether the HPA kept up.
 | `serviceTime` | time per request | exponential, mean 0.2 s |
 | `concurrencyPerPod` | requests one pod serves at once; beyond that they queue | 10 |
 | `startupDelay` | seconds from pod creation to taking traffic | the readiness probe's `initialDelaySeconds` |
-| `entry` | Service or Deployment names that receive traffic | Deployments behind a Service, else all Deployments |
+| `entry` | Service or Deployment names (or `namespace/name`) that receive traffic; a name found in several namespaces is ignored as ambiguous | Deployments behind a Service, else all Deployments |
 | `duration`, `warmUp`, `seed`, `replications`, `name` | run settings | 600 s, 0, 1, 5 |
 
 Approximations, each stated in the warnings: a Deployment's pods share one queue (an ideal load balancer, somewhat
 better than per-pod round-robin); the HPA's CPU utilisation is treated as busy request slots, so a pod with every slot
-busy is at 100% of its CPU request; only one HPA metric is used; scale-up stabilisation, scaling rate policies and the
+busy is at 100% of its CPU request; only one HPA metric is used; `selectPolicy: Disabled` on scale-down is modelled
+exactly (never below the starting pods), on scale-up it caps at the starting pods (the model may scale back up to that
+after scaling in, which the HPA would not), and on both it means no autoscaler; scale-up stabilisation, scaling rate policies and the
 HPA's 10% tolerance are not modelled. Every other kind (Ingress, ConfigMap, StatefulSet, ...) is listed as ignored.
 Memory limits and OOM kills, nodes and the cluster autoscaler, rolling updates and CPU throttling are not modelled.
