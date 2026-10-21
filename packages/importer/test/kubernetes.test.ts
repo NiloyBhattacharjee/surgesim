@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadModel, runModel } from "@surgesim/engine";
 import { dist } from "@surgesim/sdk";
-import { importKubernetes, parseManifests, type KubernetesImportOptions } from "../src/index.js";
+import { importKubernetes, parseManifests, parseOverlay, type KubernetesImportOptions } from "../src/index.js";
 
 // What `kubectl get deploy,svc,hpa,cm -o yaml` prints: one List.
 const CLUSTER = `
@@ -193,7 +193,7 @@ describe("importKubernetes: options and edge cases", () => {
   it("with no Services, every Deployment gets traffic; startupDelay overrides the probes", () => {
     const r = imported([deployment("a", 2), deployment("b"), hpa({}, "a")], { startupDelay: 45 });
     expect(r.model.components.filter((c) => c.type === "EntityGenerator")).toHaveLength(2);
-    expect(r.assumptions.join("\n")).toMatch(/Entry points \(each gets 10\/s\): a, b/);
+    expect(r.assumptions.join("\n")).toMatch(/Entry points \(each gets the full traffic\): a, b/);
     expect(comp(r, "a-hpa")!.inputs!["scaleUpDelay"]).toBe(45);
     expect(r.assumptions.join("\n")).not.toMatch(/readinessProbe/);
   });
@@ -283,5 +283,147 @@ describe("importKubernetes: options and edge cases", () => {
   it("rejects input with no Deployment, or objects without a name, with a structured error", () => {
     expect(importKubernetes([{ kind: "Service", metadata: { name: "s" } }])).toEqual({ ok: false, errors: [{ message: "no Deployment found (kinds seen: Service)" }] });
     expect(importKubernetes([{ kind: "Deployment" }]).ok).toBe(false);
+  });
+});
+
+const OVERLAY = `
+traffic:
+  entry: web
+  rateProfile: [[0, 50], [300, 150]]
+services:
+  web:                      # a Service name: means the web-frontend Deployment
+    concurrencyPerPod: 50
+    startupDelay: 30
+    serviceTime: { dist: lognormal, mean: 0.04, stdDev: 0.015 }
+    calls:
+      - { service: orders, probability: 0.6 }
+  orders-api:
+    serviceTime: 0.12
+    calls: [{ service: mailer, probability: 1 }]
+`;
+
+function overlay(text = OVERLAY) {
+  const p = parseOverlay(text);
+  if (!p.ok) throw new Error(JSON.stringify(p.errors));
+  return p.options;
+}
+const overlayErrors = (text: string) => {
+  const p = parseOverlay(text);
+  return p.ok ? [] : p.errors.map((e) => e.message);
+};
+
+describe("parseOverlay", () => {
+  it("reads traffic and per-service settings into import options, values unchanged", () => {
+    expect(overlay()).toEqual({
+      entry: ["web"],
+      rateProfile: [[0, 50], [300, 150]],
+      services: {
+        web: { concurrencyPerPod: 50, startupDelay: 30, serviceTime: { dist: "lognormal", mean: 0.04, stdDev: 0.015 }, calls: [{ service: "orders", probability: 0.6 }] },
+        "orders-api": { serviceTime: 0.12, calls: [{ service: "mailer", probability: 1 }] },
+      },
+    });
+    expect(overlay('{ "traffic": { "entry": ["a", "b"], "ratePerSecond": 5 } }')).toEqual({ entry: ["a", "b"], ratePerSecond: 5 });
+    expect(overlay("")).toEqual({});
+  });
+
+  it("reports every shape problem with its path", () => {
+    expect(overlayErrors(`
+nope: 1
+traffic: { ratePerSecond: 5, rateProfile: [[0, 1]], entry: [] }
+services:
+  a: { concurrencyPerPod: 1.5, startupDelay: -1, serviceTime: fast, extra: 1 }
+  b: { calls: [{ service: c, probability: 1.5 }, { probability: 0.1 }, 3] }
+  c: 7
+`)).toEqual([
+      "nope: unknown key (expected one of traffic, services)",
+      "traffic.entry: must be a name or a non-empty list of names",
+      "traffic: give ratePerSecond or rateProfile, not both",
+      "services.a.extra: unknown key (expected one of serviceTime, concurrencyPerPod, startupDelay, calls)",
+      "services.a.serviceTime: must be seconds (a number >= 0) or a distribution such as { dist: lognormal, mean: 0.04, stdDev: 0.015 }",
+      "services.a.concurrencyPerPod: must be an integer >= 1",
+      "services.a.startupDelay: must be a number >= 0",
+      "services.b.calls[0].probability: must be a number in [0, 1]",
+      "services.b.calls[1].service: must be a Service or Deployment name",
+      "services.b.calls[2]: must be { service, probability }",
+      "services.c: must be a mapping",
+    ]);
+    expect(overlayErrors("traffic: { rateProfile: [[0, -1]] }")[0]).toMatch(/rateProfile: must be a non-empty list/);
+    expect(overlayErrors("- a\n- b\n")).toEqual(["the overlay must be a mapping with traffic and/or services"]);
+    expect(overlayErrors("traffic: [unclosed")).toHaveLength(1);
+    expect(overlayErrors("traffic: {}\ntraffic: {}\n")).toHaveLength(1);
+  });
+});
+
+describe("importKubernetes with an overlay", () => {
+  const r = imported(objects(), overlay());
+
+  it("wires the call graph with Branches: called share, and the rest completes", () => {
+    expect(comp(r, "web-frontend")!.links!["next"]).toBe("web-frontend-calls");
+    expect(comp(r, "web-frontend-calls")).toMatchObject({ type: "Branch", inputs: { probabilities: [0.6, expect.closeTo(0.4, 12)] }, links: { targets: ["orders-api", "completed"] } });
+    // probability 1: no share left to complete here
+    expect(comp(r, "orders-api-calls")).toMatchObject({ inputs: { probabilities: [1] }, links: { targets: ["mailer"] } });
+    expect(comp(r, "mailer")!.links!["next"]).toBe("completed");
+  });
+
+  it("per-service settings override the defaults, keyed by Service or Deployment name", () => {
+    expect(comp(r, "web-frontend")!.inputs).toMatchObject({ concurrency: 100, serviceTime: { dist: "lognormal", mean: 0.04, stdDev: 0.015 }, costPerProvisionedSecond: 1 / (50 * 3600) });
+    expect(comp(r, "web-frontend-hpa")!.inputs).toMatchObject({ step: 50, minConcurrency: 100, maxConcurrency: 500, scaleUpDelay: 30 });
+    expect(comp(r, "orders-api")!.inputs).toMatchObject({ concurrency: 30, serviceTime: 0.12 });
+  });
+
+  it("traffic follows the overlay's rate profile, at the entry it names", () => {
+    const gens = r.model.components.filter((c) => c.type === "EntityGenerator");
+    expect(gens.map((g) => [g.links!["next"], g.inputs!["rateProfile"]])).toEqual([["web-frontend", [[0, 50], [300, 150]]]]);
+  });
+
+  it("assumes only what the overlay leaves out, and says calls are asynchronous", () => {
+    const a = r.assumptions.join("\n");
+    expect(a).not.toMatch(/Traffic:/);
+    expect(a).toMatch(/Service time: exponential with mean 0.2 s for mailer \(/);
+    expect(a).toMatch(/Each pod of orders-api, mailer serves 10 requests/);
+    expect(a).not.toMatch(/readinessProbe/); // the only HPA'd Deployment has a startupDelay
+    expect(r.warnings.join("\n")).toMatch(/Calls are asynchronous/);
+    expect(loadModel(r.model).ok).toBe(true);
+  });
+
+  it("without an entry, Deployments that others call get no traffic of their own", () => {
+    const { entry, ...rest } = overlay();
+    const gens = imported(objects(), rest).model.components.filter((c) => c.type === "EntityGenerator");
+    expect(gens.map((g) => g.links!["next"])).toEqual(["web-frontend"]); // orders-api is behind a Service, but called
+  });
+
+  it("simulates the call graph: latency = 0.04 + 0.6 x (0.12 + 0.01) s with ample capacity", () => {
+    const text = `
+traffic: { entry: web, ratePerSecond: 20 }
+services:
+  web-frontend: { serviceTime: 0.04, calls: [{ service: orders-api, probability: 0.6 }] }
+  orders-api: { serviceTime: 0.12, calls: [{ service: mailer, probability: 1 }] }
+  mailer: { serviceTime: 0.01 }
+`;
+    const res = simulate(imported(objects(), { ...overlay(text), concurrencyPerPod: 100, duration: 600, replications: 3, seed: 2 }));
+    const served = out(res, "web-frontend.NumberSucceeded").mean!;
+    // binomial: sd of the called fraction ~ sqrt(0.24 / 12000) ~ 0.0045; allow 4 sd
+    expect(Math.abs(out(res, "orders-api.NumberSucceeded").mean! / served - 0.6)).toBeLessThan(0.018);
+    expect(out(res, "mailer.NumberSucceeded").mean).toBe(out(res, "orders-api.NumberSucceeded").mean);
+    expect(out(res, "completed.mean").mean!).toBeCloseTo(0.04 + 0.6 * 0.13, 2);
+  });
+
+  it("rejects overlays that do not fit the manifests, with every problem listed", () => {
+    const bad = (services: KubernetesImportOptions["services"]) => {
+      const res = importKubernetes(objects(), { services });
+      return res.ok ? [] : res.errors.map((e) => e.message);
+    };
+    expect(bad({ nope: {}, web: { calls: [{ service: "ghost", probability: 0.5 }, { service: "mailer", probability: 0.3 }, { service: "mailer", probability: 0.3 }] } })).toEqual([
+      'services: "nope" is not a Service or Deployment in these manifests',
+      'Deployment/web-frontend calls "ghost" is not a Service or Deployment in these manifests',
+      "Deployment/web-frontend calls Deployment/mailer twice",
+    ]);
+    expect(bad({ web: { calls: [{ service: "orders", probability: 0.7 }, { service: "mailer", probability: 0.4 }] } })[0]).toBe(
+      "Deployment/web-frontend: call probabilities add up to 1.1; a request makes at most one call, so they must add up to at most 1",
+    );
+    expect(bad({ web: {}, "web-frontend": {} })).toEqual(['services: "web-frontend" is Deployment/web-frontend again']);
+    expect(bad({ web: { calls: [{ service: "orders", probability: 0.5 }] }, orders: { calls: [{ service: "web-frontend", probability: 0.5 }] } })).toEqual([
+      "the call graph has a cycle: Deployment/web-frontend -> Deployment/orders-api -> Deployment/web-frontend",
+    ]);
   });
 });

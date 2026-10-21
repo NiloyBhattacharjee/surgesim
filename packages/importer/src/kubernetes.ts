@@ -1,5 +1,5 @@
 import { parseAllDocuments } from "yaml";
-import { Model, dist, type Component, type Sampler } from "@surgesim/sdk";
+import { Model, dist, type Component, type RateProfile, type Sampler } from "@surgesim/sdk";
 import type { ImportResult, MappedResource } from "./import.js";
 import { isRecord } from "./intrinsics.js";
 
@@ -9,19 +9,39 @@ export interface KubernetesImportOptions {
   name?: string;
   /** Arrivals per second at each entry point (default 10). Manifests cannot say how much traffic there is. */
   ratePerSecond?: number;
+  /** Time-varying arrival rate at each entry point, `[[startSeconds, ratePerSecond], ...]`; replaces `ratePerSecond`. */
+  rateProfile?: RateProfile;
   /** Service time per request (default exponential with mean 0.2 s). Manifests cannot say how long work takes. */
   serviceTime?: Sampler;
   /** Requests one pod serves at once (default 10). Beyond that, requests wait in the Deployment's queue. */
   concurrencyPerPod?: number;
   /** Seconds from a pod being created to it taking traffic (default: the largest readinessProbe `initialDelaySeconds`). */
   startupDelay?: number;
-  /** Names of the Services or Deployments that receive traffic. Default: every Deployment behind a Service, else every Deployment. */
+  /**
+   * Names of the Services or Deployments (or `namespace/name`) that receive traffic. Default: every Deployment behind
+   * a Service that no other Deployment calls, else every Deployment that no other calls.
+   */
   entry?: readonly string[];
+  /** Per-Deployment settings, keyed by Service or Deployment name (or `namespace/name`); they override the options above. */
+  services?: Readonly<Record<string, KubernetesServiceOptions>>;
   /** Simulated seconds (default 600). */
   duration?: number;
   warmUp?: number;
   seed?: number;
   replications?: number;
+}
+
+/** What one Deployment does with a request: the behaviour manifests cannot describe. */
+export interface KubernetesServiceOptions {
+  serviceTime?: Sampler;
+  concurrencyPerPod?: number;
+  startupDelay?: number;
+  /**
+   * Where a request goes after this Deployment has served it: to `service` with `probability`, otherwise it
+   * completes. The calls are exclusive alternatives (a request makes at most one), so the probabilities add up to at
+   * most 1. Calls are asynchronous: the pod is freed when its own work ends, not when the downstream call returns.
+   */
+  calls?: readonly { service: string; probability: number }[];
 }
 
 export type ParseManifestsResult = { ok: true; objects: Record<string, unknown>[] } | { ok: false; message: string };
@@ -92,14 +112,85 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
     return { ok: false, errors: [{ message: `no Deployment found (kinds seen: ${[...new Set(all.map((o) => o.kind))].join(", ") || "none"})` }] };
   }
 
-  const rate = options.ratePerSecond ?? 10;
-  const serviceTime: Sampler = options.serviceTime ?? dist.exponential(0.2);
-  const perPod = options.concurrencyPerPod ?? 10;
+  const perPodDefault = options.concurrencyPerPod ?? 10;
   const duration = options.duration ?? 600;
-  if (options.ratePerSecond === undefined) assumptions.push(`Traffic: ${rate} requests/second at each entry point (manifests do not describe traffic; set ratePerSecond).`);
-  if (options.serviceTime === undefined) assumptions.push("Service time: exponential with mean 0.2 s for every Deployment (manifests do not describe how long requests take; set serviceTime).");
-  if (options.concurrencyPerPod === undefined) assumptions.push(`Each pod serves ${perPod} requests at once (set concurrencyPerPod).`);
+  const errors: { message: string }[] = [];
   warnings.push("Each Deployment's pods share one queue (an ideal load balancer); per-pod round-robin queues would do somewhat worse.");
+
+  // --- services: which Deployment each one routes to
+  const services: { s: K8sObject; d: K8sObject }[] = [];
+  for (const s of ofKind("Service")) {
+    const selector = at(s.raw, "spec", "selector");
+    const matches = isRecord(selector) && Object.keys(selector).length > 0
+      ? deployments.filter((d) => d.namespace === s.namespace && Object.entries(selector).every(([k, v]) => at(d.raw, "spec", "template", "metadata", "labels", k) === v))
+      : [];
+    const d = matches[0];
+    if (!d) {
+      warnings.push(`${s.id}: its selector matches no Deployment in these manifests; skipped.`);
+      continue;
+    }
+    if (matches.length > 1) warnings.push(`${s.id}: its selector matches ${matches.length} Deployments; only ${d.id} is modelled behind it.`);
+    services.push({ s, d });
+  }
+  const baseName = (d: K8sObject) => (deployments.some((x) => x !== d && x.name === d.name) ? `${d.namespace}-${d.name}` : d.name);
+  /** The Deployment a Service or Deployment name (or `namespace/name`) means, or why it means none. */
+  const resolve = (want: string): K8sObject | string => {
+    const named = (o: K8sObject) => want === o.name || want === `${o.namespace}/${o.name}`;
+    const found = [...new Set([...services.filter((x) => named(x.s)).map((x) => x.d), ...deployments.filter((x) => named(x) || baseName(x) === want)])];
+    if (found.length > 1) return `"${want}" is ambiguous (${found.map((d) => d.id).join(", ")}); write it as namespace/name`;
+    return found[0] ?? `"${want}" is not a Service or Deployment in these manifests`;
+  };
+
+  // --- per-Deployment settings and the call graph
+  const settings = new Map<K8sObject, KubernetesServiceOptions>();
+  for (const [key, s] of Object.entries(options.services ?? {})) {
+    const d = resolve(key);
+    if (typeof d === "string") errors.push({ message: `services: ${d}` });
+    else if (settings.has(d)) errors.push({ message: `services: "${key}" is ${d.id} again` });
+    else settings.set(d, s);
+  }
+  const calls = new Map<K8sObject, { to: K8sObject; probability: number }[]>();
+  for (const [d, s] of settings) {
+    const list: { to: K8sObject; probability: number }[] = [];
+    for (const c of s.calls ?? []) {
+      const to = resolve(c.service);
+      if (typeof to === "string") errors.push({ message: `${d.id} calls ${to}` });
+      else if (list.some((x) => x.to === to)) errors.push({ message: `${d.id} calls ${to.id} twice` });
+      else list.push({ to, probability: c.probability });
+    }
+    const total = list.reduce((a, c) => a + c.probability, 0);
+    if (total > 1 + 1e-9) errors.push({ message: `${d.id}: call probabilities add up to ${+total.toPrecision(12)}; a request makes at most one call, so they must add up to at most 1` });
+    if (list.length > 0) calls.set(d, list);
+  }
+  // A cycle would pass requests around without bound (forever, at probability 1), so it is rejected.
+  const state = new Map<K8sObject, "visiting" | "done">();
+  const visit = (d: K8sObject, path: K8sObject[]): void => {
+    if (state.get(d) === "done") return;
+    if (state.get(d) === "visiting") {
+      errors.push({ message: `the call graph has a cycle: ${[...path.slice(path.indexOf(d)), d].map((x) => x.id).join(" -> ")}` });
+      return;
+    }
+    state.set(d, "visiting");
+    for (const c of calls.get(d) ?? []) visit(c.to, [...path, d]);
+    state.set(d, "done");
+  };
+  for (const d of calls.keys()) visit(d, []);
+  if (errors.length > 0) return { ok: false, errors };
+
+  const of = <K extends keyof KubernetesServiceOptions>(d: K8sObject, key: K) => settings.get(d)?.[key];
+  const unset = (key: keyof KubernetesServiceOptions) => deployments.filter((d) => of(d, key) === undefined).map(baseName);
+  if (options.ratePerSecond === undefined && options.rateProfile === undefined) {
+    assumptions.push("Traffic: 10 requests/second at each entry point (manifests do not describe traffic; set ratePerSecond or rateProfile).");
+  }
+  if (options.serviceTime === undefined && unset("serviceTime").length > 0) {
+    assumptions.push(`Service time: exponential with mean 0.2 s for ${unset("serviceTime").join(", ")} (manifests do not describe how long requests take; set serviceTime).`);
+  }
+  if (options.concurrencyPerPod === undefined && unset("concurrencyPerPod").length > 0) {
+    assumptions.push(`Each pod of ${unset("concurrencyPerPod").join(", ")} serves ${perPodDefault} requests at once (set concurrencyPerPod).`);
+  }
+  if (calls.size > 0) {
+    warnings.push("Calls are asynchronous: a pod is freed when its own work ends, not when its downstream call returns, so upstream pods look less busy than they are when a downstream service is slow.");
+  }
 
   const model = new Model(options.name ?? "Imported Kubernetes manifests", {
     duration,
@@ -133,7 +224,8 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
   const pools = new Map<K8sObject, Component<string>>();
   let probeDelays = false;
   for (const d of deployments) {
-    const name = deployments.some((x) => x !== d && x.name === d.name) ? `${d.namespace}-${d.name}` : d.name;
+    const name = baseName(d);
+    const perPod = of(d, "concurrencyPerPod") ?? perPodDefault;
     const notes: string[] = [];
     let replicas = num(at(d.raw, "spec", "replicas"));
     if (replicas === undefined) {
@@ -151,15 +243,14 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
     const containers = at(d.raw, "spec", "template", "spec", "containers");
     const delays = (Array.isArray(containers) ? containers : []).map((c) => num(at(c, "readinessProbe", "initialDelaySeconds")));
     if (delays.some((x) => x !== undefined)) probeDelays = true;
-    const startup = options.startupDelay ?? Math.max(0, ...delays.map((x) => x ?? 0));
+    const startup = of(d, "startupDelay") ?? options.startupDelay ?? Math.max(0, ...delays.map((x) => x ?? 0));
 
     const queue = model.queue(unique(`${name}-queue`));
     const pool = model.workerPool(unique(name), {
       concurrency: replicas * perPod,
-      serviceTime,
+      serviceTime: of(d, "serviceTime") ?? options.serviceTime ?? dist.exponential(0.2),
       costPerProvisionedSecond: 1 / (perPod * 3600),
       queue,
-      next: completed,
     });
     pools.set(d, pool);
     note(d, pool, [...notes, `${replicas} pod(s) x ${perPod} concurrent requests each`, "Cost is in pod-hours"]);
@@ -201,52 +292,48 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
   }
   if (hpaFor.size > 0) {
     warnings.push("HPA CPU utilisation is approximated as busy request slots / slots: a pod with every slot busy is at 100% of its CPU request. The HPA's 10% tolerance is not modelled.");
-    if (options.startupDelay === undefined) {
-      assumptions.push(`New pods take traffic after their readinessProbe initialDelaySeconds${probeDelays ? "" : " (none set: 0 s)"}; scheduling, image pull and container start are not included (set startupDelay).`);
+    const fromProbes = [...hpaFor.keys()].filter((d) => of(d, "startupDelay") === undefined).map(baseName);
+    if (options.startupDelay === undefined && fromProbes.length > 0) {
+      assumptions.push(`New pods of ${fromProbes.join(", ")} take traffic after their readinessProbe initialDelaySeconds${probeDelays ? "" : " (none set: 0 s)"}; scheduling, image pull and container start are not included (set startupDelay).`);
     }
   }
+  for (const { s, d } of services) note(s, pools.get(d) as Component<string>, [`routes to ${d.id}`]);
 
-  // --- services: which Deployment each one routes to
-  const behindService = new Set<K8sObject>();
-  const services: { s: K8sObject; d: K8sObject }[] = [];
-  for (const s of ofKind("Service")) {
-    const selector = at(s.raw, "spec", "selector");
-    const matches = isRecord(selector) && Object.keys(selector).length > 0
-      ? deployments.filter((d) => d.namespace === s.namespace && Object.entries(selector).every(([k, v]) => at(d.raw, "spec", "template", "metadata", "labels", k) === v))
-      : [];
-    const d = matches[0];
-    if (!d) {
-      warnings.push(`${s.id}: its selector matches no Deployment in these manifests; skipped.`);
+  // --- where each Deployment sends a request it has served
+  for (const d of deployments) {
+    const pool = pools.get(d) as Component<string>;
+    const list = calls.get(d);
+    if (!list) {
+      pool.link("next", completed);
       continue;
     }
-    if (matches.length > 1) warnings.push(`${s.id}: its selector matches ${matches.length} Deployments; only ${d.id} is modelled behind it.`);
-    behindService.add(d);
-    services.push({ s, d });
-    note(s, pools.get(d) as Component<string>, [`routes to ${d.id}`]);
+    const rest = 1 - list.reduce((a, c) => a + c.probability, 0);
+    const targets = [...list.map((c) => pools.get(c.to) as Component<string>), ...(rest > 1e-9 ? [completed] : [])];
+    const probabilities = [...list.map((c) => c.probability), ...(rest > 1e-9 ? [rest] : [])];
+    pool.link("next", model.branch(unique(`${pool.name}-calls`), { targets, probabilities }));
   }
 
   // --- entry points and traffic
   let entries: K8sObject[];
   if (options.entry) {
     entries = [];
-    const named = (o: K8sObject, want: string) => want === o.name || want === `${o.namespace}/${o.name}`;
     for (const want of options.entry) {
-      const found = [...new Set([
-        ...services.filter((x) => named(x.s, want)).map((x) => x.d),
-        ...deployments.filter((x) => named(x, want) || pools.get(x)?.name === want),
-      ])];
-      if (found.length === 1) entries.push(found[0] as K8sObject);
-      else if (found.length > 1) warnings.push(`entry "${want}" is ambiguous (${found.map((d) => d.id).join(", ")}); write it as namespace/name. Ignored.`);
-      else warnings.push(`entry "${want}" is not a Service or Deployment in these manifests; ignored.`);
+      const d = resolve(want);
+      if (typeof d === "string") warnings.push(`entry ${d}; ignored.`);
+      else entries.push(d);
     }
     if (entries.length === 0) warnings.push("no entry point found: the model has no traffic.");
   } else {
-    entries = behindService.size > 0 ? deployments.filter((d) => behindService.has(d)) : deployments;
-    if (entries.length > 1) assumptions.push(`Entry points (each gets ${rate}/s): ${entries.map((d) => pools.get(d)?.name).join(", ")}. Pass entry to choose.`);
+    const called = new Set([...calls.values()].flat().map((c) => c.to));
+    const behindService = new Set(services.map((x) => x.d));
+    const candidates = deployments.filter((d) => !called.has(d));
+    entries = candidates.some((d) => behindService.has(d)) ? candidates.filter((d) => behindService.has(d)) : candidates;
+    if (entries.length > 1) assumptions.push(`Entry points (each gets the full traffic): ${entries.map((d) => pools.get(d)?.name).join(", ")}. Pass entry to choose.`);
   }
+  const rateProfile = options.rateProfile ?? [[0, options.ratePerSecond ?? 10]];
   for (const d of new Set(entries)) {
     const pool = pools.get(d) as Component<string>;
-    model.entityGenerator(unique(`traffic-${pool.name}`), { mode: "rateProfile", rateProfile: [[0, rate]], next: pool });
+    model.entityGenerator(unique(`traffic-${pool.name}`), { mode: "rateProfile", rateProfile, next: pool });
   }
 
   model.sampleEvery(5, deployments.flatMap((d) => {

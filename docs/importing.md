@@ -98,10 +98,12 @@ and `BusyWorkers` every 5 s, so the report shows whether the HPA kept up.
 | Option | Meaning | Default |
 |---|---|---|
 | `ratePerSecond` | requests per second at each entry point | 10 |
+| `rateProfile` | time-varying rate at each entry point, `[[startSeconds, ratePerSecond], ...]`; replaces `ratePerSecond` | none |
 | `serviceTime` | time per request | exponential, mean 0.2 s |
 | `concurrencyPerPod` | requests one pod serves at once; beyond that they queue | 10 |
 | `startupDelay` | seconds from pod creation to taking traffic | the readiness probe's `initialDelaySeconds` |
-| `entry` | Service or Deployment names (or `namespace/name`) that receive traffic; a name found in several namespaces is ignored as ambiguous | Deployments behind a Service, else all Deployments |
+| `entry` | Service or Deployment names (or `namespace/name`) that receive traffic; a name found in several namespaces is ignored as ambiguous | Deployments behind a Service that no other Deployment calls, else all Deployments no other calls |
+| `services` | per-Deployment `serviceTime`, `concurrencyPerPod`, `startupDelay` and `calls`, keyed by Service or Deployment name; see the overlay below | none |
 | `duration`, `warmUp`, `seed`, `replications`, `name` | run settings | 600 s, 0, 1, 5 |
 
 Approximations, each stated in the warnings: a Deployment's pods share one queue (an ideal load balancer, somewhat
@@ -111,3 +113,52 @@ exactly (never below the starting pods), on scale-up it caps at the starting pod
 after scaling in, which the HPA would not), and on both it means no autoscaler; scale-up stabilisation, scaling rate policies and the
 HPA's 10% tolerance are not modelled. Every other kind (Ingress, ConfigMap, StatefulSet, ...) is listed as ignored.
 Memory limits and OOM kills, nodes and the cluster autoscaler, rolling updates and CPU throttling are not modelled.
+
+## The overlay file
+
+Manifests describe structure: what runs, how many copies, how it scales. They do not describe behaviour: how much traffic
+arrives, how long requests take, which service calls which. An **overlay** file supplies that. It is YAML or JSON, uses the
+model format's units (seconds, per second) and [sampler JSON](model-format.md), and becomes import options through
+`parseOverlay(text)`:
+
+```yaml
+traffic:
+  entry: web                                        # Service or Deployment name, or a list
+  rateProfile: [[0, 200], [300, 600], [900, 200]]   # or ratePerSecond: 200
+services:
+  web:                                              # Service or Deployment name, or namespace/name
+    concurrencyPerPod: 50
+    startupDelay: 30
+    serviceTime: { dist: lognormal, mean: 0.04, stdDev: 0.015 }
+    calls:
+      - { service: orders-api, probability: 0.6 }
+  orders-api:
+    serviceTime: { dist: lognormal, mean: 0.12, stdDev: 0.06 }
+    calls:
+      - { service: postgres, probability: 1.0 }
+```
+
+```ts
+import { importKubernetes, parseManifests, parseOverlay } from "@surgesim/importer";
+
+const overlay = parseOverlay(overlayText); // { ok: true, options } or { ok: false, errors }
+if (!overlay.ok) throw new Error(overlay.errors.map((e) => e.message).join("
+"));
+const result = importKubernetes(parsed.objects, { ...overlay.options, duration: 1200 });
+```
+
+`parseOverlay` checks the shape (keys, types, ranges) and reports every problem with its path, such as
+`services.web.concurrencyPerPod: must be an integer >= 1`. Distribution parameters are checked by the engine when the model
+loads. `importKubernetes` then rejects an overlay that does not fit the manifests: a name that matches no Service or
+Deployment (or matches several), a Deployment listed twice, call probabilities adding up to more than 1, or a call cycle.
+
+**Calls.** After a Deployment serves a request, the request goes to one called service with that call's probability, or
+completes with the remaining probability, through a [`Branch`](model-format.md). So `calls` are exclusive alternatives
+(a request makes at most one call per hop), and end-to-end latency at the `completed` sink includes every hop. Calls are
+**asynchronous**: a pod is freed when its own work ends, not when its downstream call returns, so when a downstream
+service is slow the model understates how busy the upstream pods are. Deployments that another Deployment calls get no
+traffic of their own unless `entry` names them.
+
+Service times and call probabilities can come from real data: `surgesim fit` ([calibration](calibration.md)) fits a
+distribution to measured durations, such as span durations exported from OpenTelemetry or Jaeger traces, and
+`surgesim fit-arrivals` turns request timestamps into a `rateProfile`.
