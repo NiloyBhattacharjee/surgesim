@@ -1,12 +1,13 @@
 {
   "name": "@surgesim/importer",
   "version": "0.2.0",
-  "description": "Import AWS CloudFormation / CDK-synthesized templates as Surgesim models. No Node or DOM APIs.",
+  "description": "Import AWS CloudFormation / CDK-synthesized templates and Kubernetes manifests as Surgesim models. No Node or DOM APIs.",
   "keywords": [
     "simulation",
     "cloudformation",
     "cdk",
     "aws",
+    "kubernetes",
     "import"
   ],
   "license": "Apache-2.0",

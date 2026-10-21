@@ -68,3 +68,44 @@ resolved to numbers. A template with no entry point yields a warning that the mo
 
 ECS tasks and CPU targets are approximations: a task is modelled as `--concurrency-per-task` parallel workers (10 by
 default), and a CPU utilisation target is treated as a target for busy workers.
+
+# Importing Kubernetes manifests
+
+`@surgesim/importer` also reads Kubernetes manifests: multi-document YAML (`---`), JSON, or the single `List` that
+`kubectl get deploy,svc,hpa -o yaml` prints.
+
+```ts
+import { importKubernetes, parseManifests } from "@surgesim/importer";
+import { dist } from "@surgesim/sdk";
+
+const parsed = parseManifests(text); // { ok: true, objects } or { ok: false, message }
+if (!parsed.ok) throw new Error(parsed.message);
+const result = importKubernetes(parsed.objects, { ratePerSecond: 200, serviceTime: dist.lognormal(0.04, 0.015), concurrencyPerPod: 50 });
+```
+
+The result has the same shape as `importCloudFormation`'s: the model plus `mapped`, `ignored`, `assumptions` and
+`warnings`.
+
+| Kubernetes | Becomes | Read from the manifest |
+|---|---|---|
+| `Deployment` | a `Queue` feeding a `WorkerPool` with `replicas × concurrencyPerPod` workers | `replicas` (default 1); the largest container `readinessProbe.initialDelaySeconds` is how long a new pod takes to receive traffic |
+| `HorizontalPodAutoscaler` (`autoscaling/v1` or `v2`) | `Autoscaler`: evaluates every 15 s, scales in whole pods (`step`), new pods take traffic after the readiness delay (`scaleUpDelay`) | `minReplicas`, `maxReplicas`, the CPU `averageUtilization` (or `targetCPUUtilizationPercentage`, default 80%), `behavior.scaleDown.stabilizationWindowSeconds` (default 300) |
+| `Service` | nothing of its own: it marks the Deployment its `selector` matches as an entry point, and `entry` can name it | `selector` |
+
+Each pool's `Cost` is in **pod-hours**, and the model samples every Deployment's `Concurrency` (pods × requests per pod)
+and `BusyWorkers` every 5 s, so the report shows whether the HPA kept up.
+
+| Option | Meaning | Default |
+|---|---|---|
+| `ratePerSecond` | requests per second at each entry point | 10 |
+| `serviceTime` | time per request | exponential, mean 0.2 s |
+| `concurrencyPerPod` | requests one pod serves at once; beyond that they queue | 10 |
+| `startupDelay` | seconds from pod creation to taking traffic | the readiness probe's `initialDelaySeconds` |
+| `entry` | Service or Deployment names that receive traffic | Deployments behind a Service, else all Deployments |
+| `duration`, `warmUp`, `seed`, `replications`, `name` | run settings | 600 s, 0, 1, 5 |
+
+Approximations, each stated in the warnings: a Deployment's pods share one queue (an ideal load balancer, somewhat
+better than per-pod round-robin); the HPA's CPU utilisation is treated as busy request slots, so a pod with every slot
+busy is at 100% of its CPU request; only one HPA metric is used; scale-up stabilisation, scaling rate policies and the
+HPA's 10% tolerance are not modelled. Every other kind (Ingress, ConfigMap, StatefulSet, ...) is listed as ignored.
+Memory limits and OOM kills, nodes and the cluster autoscaler, rolling updates and CPU throttling are not modelled.
