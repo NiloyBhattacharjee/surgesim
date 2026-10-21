@@ -442,6 +442,114 @@ describe("surgesim import (CloudFormation / CDK)", () => {
   });
 });
 
+describe("surgesim import (Kubernetes manifests)", () => {
+  const manifests = `apiVersion: v1
+kind: List
+items:
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata: { name: web-frontend }
+    spec:
+      replicas: 2
+      template:
+        metadata: { labels: { app: web } }
+        spec: { containers: [{ name: web, readinessProbe: { initialDelaySeconds: 20 } }] }
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata: { name: orders-api }
+    spec: { replicas: 3, template: { metadata: { labels: { app: orders } } } }
+  - apiVersion: v1
+    kind: Service
+    metadata: { name: web }
+    spec: { selector: { app: web } }
+  - apiVersion: autoscaling/v2
+    kind: HorizontalPodAutoscaler
+    metadata: { name: web-frontend }
+    spec:
+      scaleTargetRef: { kind: Deployment, name: web-frontend }
+      minReplicas: 2
+      maxReplicas: 10
+      metrics: [{ type: Resource, resource: { name: cpu, target: { type: Utilization, averageUtilization: 50 } } }]
+`;
+  const overlay = `traffic:
+  entry: web
+  rateProfile: [[0, 50], [60, 150]]
+services:
+  web:
+    concurrencyPerPod: 50
+    serviceTime: { dist: lognormal, mean: 0.04, stdDev: 0.015 }
+    calls: [{ service: orders-api, probability: 0.6 }]
+  orders-api: { serviceTime: 0.12 }
+`;
+  const model = (h: ReturnType<typeof harness>, file = "m.json") => JSON.parse(h.fs.files.get(file)!);
+  const comp = (m: { components: { name: string }[] }, name: string) => m.components.find((c) => c.name === name) as any;
+
+  it("imports manifests with an overlay, summarises the mapping, and the model runs", async () => {
+    const h = harness({ "k8s.yaml": manifests, "overlay.yaml": overlay });
+    expect(await h.call(["import", "k8s.yaml", "--overlay", "overlay.yaml", "--out", "m.json", "--duration", "120", "--replications", "2"])).toBe(EXIT_OK);
+    const m = model(h);
+    expect(comp(m, "web-frontend").links.next).toBe("web-frontend-calls");
+    expect(comp(m, "traffic-web-frontend").inputs.rateProfile).toEqual([[0, 50], [60, 150]]);
+    const out = h.stdout.join("\n");
+    expect(out).toContain('Deployment/web-frontend (Deployment) -> WorkerPool "web-frontend"');
+    expect(out).toContain('HorizontalPodAutoscaler/web-frontend (HorizontalPodAutoscaler) -> Autoscaler "web-frontend-hpa"');
+    expect(out).toContain("Assumptions (the manifests do not say; review these)");
+    expect(out).toContain("Calls are asynchronous");
+    const run = harness({ "m.json": h.fs.files.get("m.json")! });
+    expect(await run.call(["run", "m.json"])).toBe(EXIT_OK);
+    expect(run.stdout.join("\n")).toContain("orders-api");
+  });
+
+  it("detects manifests by apiVersion (YAML or JSON) without an overlay", async () => {
+    const json = JSON.stringify({ apiVersion: "apps/v1", kind: "Deployment", metadata: { name: "api" }, spec: { replicas: 2 } });
+    const h = harness({ "k8s.yaml": manifests, "d.json": json });
+    expect(await h.call(["import", "k8s.yaml", "--out", "a.json"])).toBe(EXIT_OK);
+    expect(comp(model(h, "a.json"), "web-frontend").inputs.concurrency).toBe(20); // 2 pods x the default 10
+    expect(h.stdout.join("\n")).toContain("Traffic: 10 requests/second");
+    expect(await h.call(["import", "d.json", "--out", "b.json"])).toBe(EXIT_OK);
+    expect(comp(model(h, "b.json"), "api").type).toBe("WorkerPool");
+  });
+
+  it("flags override the overlay's top level; the overlay's per-service settings still win", async () => {
+    const h = harness({ "k8s.yaml": manifests, "overlay.yaml": overlay });
+    const args = ["import", "k8s.yaml", "--overlay", "overlay.yaml", "--out", "m.json", "--rate", "7", "--concurrency-per-pod", "4", "--startup-delay", "45"];
+    expect(await h.call(args)).toBe(EXIT_OK);
+    const m = model(h);
+    expect(comp(m, "traffic-web-frontend").inputs.rateProfile).toEqual([[0, 7]]); // --rate replaces the rate profile
+    expect(comp(m, "orders-api").inputs.concurrency).toBe(12); // 3 pods x --concurrency-per-pod 4
+    expect(comp(m, "web-frontend").inputs.concurrency).toBe(100); // 2 pods x the overlay's 50
+    expect(comp(m, "web-frontend-hpa").inputs.scaleUpDelay).toBe(45);
+  });
+
+  it("reports overlay problems: shape errors with paths, names that do not fit, and bad distributions", async () => {
+    const h = harness({
+      "k8s.yaml": manifests,
+      "shape.yaml": "services:\n  web: { concurrencyPerPod: 0, extra: 1 }\n",
+      "names.yaml": "services:\n  ghost: {}\n",
+      "dist.yaml": "services:\n  web: { serviceTime: { dist: nope } }\n",
+    });
+    expect(await h.call(["import", "k8s.yaml", "--overlay", "shape.yaml"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("error: shape.yaml:\n  - services.web.extra: unknown key");
+    expect(h.stderr.join("\n")).toContain("  - services.web.concurrencyPerPod: must be an integer >= 1");
+    expect(await h.call(["import", "k8s.yaml", "--overlay", "names.yaml"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain('error: k8s.yaml with names.yaml: services: "ghost" is not a Service or Deployment');
+    expect(await h.call(["import", "k8s.yaml", "--overlay", "dist.yaml"])).toBe(EXIT_INVALID_MODEL);
+    expect(h.stderr.join("\n")).toContain("failed validation (check the values in dist.yaml)");
+  });
+
+  it("rejects flags for the other format, missing overlays, bad numbers and malformed manifests", async () => {
+    const h = harness({ "k8s.yaml": manifests, "stack.json": readFileSync(join(examplesDir, "cloudformation", "orders-stack.template.json"), "utf8"), "bad.yaml": "apiVersion: v1\nkind: [unclosed\n" });
+    expect(await h.call(["import", "k8s.yaml", "--cold-start", "1"])).toBe(EXIT_USAGE);
+    expect(h.stderr.join("\n")).toContain("--cold-start cannot be used here: k8s.yaml is Kubernetes manifests");
+    expect(await h.call(["import", "stack.json", "--startup-delay", "5", "--concurrency-per-pod", "2"])).toBe(EXIT_USAGE);
+    expect(h.stderr.join("\n")).toContain("--concurrency-per-pod and --startup-delay cannot be used here: stack.json is a CloudFormation template");
+    expect(await h.call(["import", "k8s.yaml", "--overlay", "missing.yaml"])).toBe(EXIT_USAGE);
+    expect(await h.call(["import", "k8s.yaml", "--concurrency-per-pod", "0"])).toBe(EXIT_USAGE);
+    expect(await h.call(["import", "k8s.yaml", "--startup-delay", "-1"])).toBe(EXIT_USAGE);
+    expect(await h.call(["import", "bad.yaml"])).toBe(EXIT_INVALID_MODEL);
+  });
+});
+
 describe("model module load errors give actionable hints", () => {
   const failing = (message: string) => async () => {
     throw new Error(message);

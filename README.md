@@ -6,7 +6,7 @@
 
 **Code-first discrete event simulation (DES) for cloud and distributed systems.** Describe request traffic,
 queues, worker pools, retries and autoscaling in JSON, TypeScript or Python (or import a CloudFormation/CDK
-template), run it with the `surgesim` CLI, and get a report with confidence intervals. It answers questions like:
+template or Kubernetes manifests), run it with the `surgesim` CLI, and get a report with confidence intervals. It answers questions like:
 
 > What happens to my queue backlog and p99 latency if traffic spikes 5x with a concurrency limit of 50?
 
@@ -27,7 +27,7 @@ no install: the engine runs in a Web Worker on the page and nothing leaves your 
 | Share a result | `--html report.html`: one self-contained file with charts ([docs](docs/reports.md)) |
 | Compare two designs | `surgesim compare a.json b.json --html diff.html` |
 | Write models as code | the [TypeScript SDK](docs/sdk.md) or the [Python SDK](sdks/python/README.md) |
-| Start from real infrastructure | `surgesim import cdk.out/Stack.template.json` ([docs](docs/importing.md)) |
+| Start from real infrastructure | `surgesim import cdk.out/Stack.template.json`, or Kubernetes: `surgesim import manifests.yaml --overlay overlay.yaml` ([docs](docs/importing.md)) |
 | Fit inputs from your real metrics and check the model against them | `surgesim fit`, `fit-arrivals`, `calibrate` ([docs](docs/calibration.md)) |
 | Try it without installing | the [browser demo](https://niloybhattacharjee.github.io/surgesim/): a drag-and-drop model editor, with the engine running in a Web Worker, in one HTML file ([docs](docs/browser-demo.md)) |
 
@@ -92,6 +92,7 @@ surgesim report <results.json|model> --html report.html       render an HTML rep
 surgesim compare <a> <b> --html compare.html                  compare two runs (results files or models)
 surgesim compile <model.ts|.js|.json> [--out model.json]      build a model module to the JSON format
 surgesim import <template.json> [--out model.json] [--rate N] [--service-time MEAN] [--entry ID]...
+surgesim import <manifests.yaml> [--overlay overlay.yaml] [--out model.json]   Kubernetes Deployments, Services, HPAs
 surgesim fit <data.csv> [--column NAME] [--scale K]           fit a distribution to measured durations
 surgesim fit-arrivals <timestamps.csv> --window S             fit an arrival rate profile from request timestamps
 surgesim calibrate <model> --observed observed.json           compare a model with what the real system measured
