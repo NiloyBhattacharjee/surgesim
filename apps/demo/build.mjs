@@ -11,8 +11,11 @@ const pkg = (name) => resolve(here, "../../packages", name, "src/index.ts");
 const alias = {
   "@surgesim/engine": pkg("engine"),
   "@surgesim/report": pkg("report"),
+  "@surgesim/importer": pkg("importer"),
+  "@surgesim/sdk": pkg("sdk"),
 };
-const common = { bundle: true, format: "iife", platform: "neutral", mainFields: ["module", "main"], target: "es2022", write: false, legalComments: "none", alias, logLevel: "silent" };
+// .yaml files (the Kubernetes example) are embedded as text.
+const common = { loader: { ".yaml": "text" }, bundle: true, format: "iife", platform: "neutral", mainFields: ["module", "main"], target: "es2022", write: false, legalComments: "none", alias, logLevel: "silent" };
 
 /** Build the demo. Returns the worker source (for tests) and the path of the page. */
 export async function buildDemo({ outDir = join(here, "dist") } = {}) {
@@ -22,6 +25,8 @@ export async function buildDemo({ outDir = join(here, "dist") } = {}) {
     ...common,
     platform: "browser",
     entryPoints: [join(here, "src/page.ts")],
+    // The page carries the YAML parser for the Kubernetes tab; minified, the file stays near its old size.
+    minify: true,
     define: { __WORKER_SOURCE__: JSON.stringify(workerSource) },
   });
   const pageJs = page.outputFiles[0].text.replace(/<\/script/gi, "<\/script");

@@ -29,7 +29,7 @@ no install: the engine runs in a Web Worker on the page and nothing leaves your 
 | Write models as code | the [TypeScript SDK](docs/sdk.md) or the [Python SDK](sdks/python/README.md) |
 | Start from real infrastructure | `surgesim import cdk.out/Stack.template.json`, or Kubernetes: `surgesim import manifests.yaml --overlay overlay.yaml` ([docs](docs/importing.md)) |
 | Fit inputs from your real metrics and check the model against them | `surgesim fit`, `fit-arrivals`, `calibrate` ([docs](docs/calibration.md)) |
-| Try it without installing | the [browser demo](https://niloybhattacharjee.github.io/surgesim/): a drag-and-drop model editor, with the engine running in a Web Worker, in one HTML file ([docs](docs/browser-demo.md)) |
+| Try it without installing | the [browser demo](https://niloybhattacharjee.github.io/surgesim/): a drag-and-drop model editor, with the engine running in a Web Worker, in one HTML file; its [Kubernetes tab](https://niloybhattacharjee.github.io/surgesim/?tab=kubernetes&run=1) imports pasted manifests and an overlay and replays the HPA scaling ([docs](docs/browser-demo.md)) |
 
 ## Where this is useful
 
