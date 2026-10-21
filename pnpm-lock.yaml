@@ -53,6 +53,9 @@ importers:
       '@surgesim/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@surgesim/importer':
+        specifier: workspace:*
+        version: link:../../packages/importer
       '@surgesim/report':
         specifier: workspace:*
         version: link:../../packages/report

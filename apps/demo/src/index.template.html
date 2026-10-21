@@ -30,7 +30,15 @@ label { color: var(--ink2); font-size: 13px; }
 .tabs button { cursor: pointer; }
 .tabs button[aria-selected=true] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 #diagram { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-#diagram[hidden], textarea[hidden] { display: none; }
+#diagram[hidden], textarea[hidden], #kubernetes[hidden] { display: none; }
+#kubernetes { flex: 1; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+#kubernetes .hint { margin: 0 0 4px; }
+#kubernetes textarea { flex: 1; min-height: 160px; }
+#kubernetes .bar { margin: 4px 0 0; }
+.notes { font-size: 13px; color: var(--ink2); }
+.notes h3 { font-size: 13px; margin: 8px 0 2px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 20px; }
+code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .layout:has(#diagram:not([hidden])) { grid-template-columns: 1fr 1fr; }
 @media (max-width: 900px) { .layout:has(#diagram:not([hidden])) { grid-template-columns: 1fr; } }
 .palette { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -106,9 +114,18 @@ label { color: var(--ink2); font-size: 13px; }
       <label>replications <input id="reps" type="number" min="1" max="50" value="3"></label>
       <button id="run" class="primary">Run</button>
     </div>
-    <div class="tabs" role="tablist"><button id="tab-diagram" role="tab">Diagram</button><button id="tab-json" role="tab">JSON</button></div>
+    <div class="tabs" role="tablist"><button id="tab-diagram" role="tab">Diagram</button><button id="tab-json" role="tab">JSON</button><button id="tab-kubernetes" role="tab">Kubernetes</button></div>
     <div id="diagram"></div>
     <textarea id="model" spellcheck="false" aria-label="Model JSON"></textarea>
+    <div id="kubernetes" hidden>
+      <p class="hint">Paste <code>kubectl get deploy,svc,hpa -o yaml</code> output and an overlay with the traffic, service times and calls the manifests cannot describe. Import turns them into a model (Deployments become pools, HPAs autoscalers), then it runs and replays on the diagram.</p>
+      <label for="k8s-manifests">Manifests</label>
+      <textarea id="k8s-manifests" spellcheck="false"></textarea>
+      <label for="k8s-overlay">Overlay</label>
+      <textarea id="k8s-overlay" spellcheck="false"></textarea>
+      <div class="bar"><label>duration (s) <input id="k8s-duration" type="number" min="60" step="60" value="1200"></label><button id="k8s-import" class="primary">Import and run</button></div>
+      <div id="k8s-notes" class="notes"></div>
+    </div>
     <ul id="errors" hidden></ul>
   </section>
   <section class="panel">
