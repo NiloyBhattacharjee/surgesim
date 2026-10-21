@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildDemo } from "../build.mjs";
 import { loadModel, runModel } from "@surgesim/engine";
 import { handleRun, type RunResponse } from "../src/handler.js";
+import { importForDemo } from "../src/kubernetes.js";
 
 const exampleJson = async (file: string): Promise<unknown> =>
   JSON.parse(await readFile(fileURLToPath(new URL(`../../../examples/${file}`, import.meta.url)), "utf8"));
@@ -64,6 +65,39 @@ describe("handleRun (the worker's logic)", () => {
   });
 });
 
+describe("importForDemo (the Kubernetes tab)", () => {
+  const example = (file: string) => readFile(fileURLToPath(new URL(`../../../examples/kubernetes/${file}`, import.meta.url)), "utf8");
+
+  it("imports the example manifests and overlay into a model the worker runs, with the HPA in the replay", async () => {
+    const r = importForDemo(await example("shop.yaml"), await example("overlay.yaml"), 900);
+    if (!r.ok) throw new Error(r.errors.join("\n"));
+    expect(r.mapped.map((m) => m.component)).toContain("web-frontend-hpa");
+    expect(r.ignored).toEqual([{ logicalId: "ConfigMap/shop-settings", type: "ConfigMap" }]);
+    expect(r.warnings.join("\n")).toContain("Calls are asynchronous");
+    const run = handleRun({ json: r.json, replications: 1 });
+    if (!run.ok) throw new Error(JSON.stringify(run.errors));
+    expect(run.playback.duration).toBe(900);
+    // The diagram shows busy slots against the pool's (autoscaled) concurrency: the pods.
+    const pods = run.playback.values["web-frontend.Concurrency"]!.map((c) => c! / 20);
+    expect(Math.max(...pods)).toBeGreaterThan(pods[0]!);
+    expect(run.playback.values["web-frontend.BusyWorkers"]).toBeDefined();
+  });
+
+  it("reports manifest, overlay and fit problems as messages instead of throwing", async () => {
+    expect(importForDemo("kind: [unclosed", "", 600)).toMatchObject({ ok: false, errors: [expect.stringMatching(/^Manifests: /)] });
+    const overlay = importForDemo(await example("shop.yaml"), "services:\n  web: { concurrencyPerPod: 0 }\n", 600);
+    expect(overlay).toEqual({ ok: false, errors: ["Overlay: services.web.concurrencyPerPod: must be an integer >= 1"] });
+    const fit = importForDemo(await example("shop.yaml"), "services:\n  ghost: {}\n", 600);
+    expect(fit).toEqual({ ok: false, errors: ['services: "ghost" is not a Service or Deployment in these manifests'] });
+    expect(importForDemo("apiVersion: v1\nkind: Service\nmetadata: { name: s }\n", "", 600).ok).toBe(false);
+  });
+
+  it("an empty overlay is allowed: the importer states its defaults", async () => {
+    const r = importForDemo(await example("shop.yaml"), "", 600);
+    expect(r.ok && r.assumptions.join("\n")).toContain("Traffic: 10 requests/second");
+  });
+});
+
 describe("the built demo", () => {
   let dir: string;
   let built: { htmlPath: string; workerSource: string; html: string };
@@ -96,6 +130,15 @@ describe("the built demo", () => {
     for (const name of ["Autoscaled service", "Traffic spike", "SQS visibility timeout", "Serverless cold starts", "Retry storm", "M/M/1"]) {
       expect(built.html).toContain(name);
     }
+  });
+
+  it("embeds the Kubernetes tab with the example manifests and overlay, and stays a small single file", () => {
+    expect(built.html).toContain('id="tab-kubernetes"');
+    expect(built.html).toContain("kind: HorizontalPodAutoscaler");
+    expect(built.html).toContain("rateProfile: [[0, 100], [300, 400], [600, 100]]");
+    // The YAML parser lives in the page bundle only (minified); the worker sees model JSON, never YAML.
+    expect(built.workerSource).not.toContain("parseAllDocuments");
+    expect(built.html.length).toBeLessThan(400 * 1024);
   });
 
   it("the worker bundle runs with NO Node or DOM globals: only ECMAScript built-ins", async () => {

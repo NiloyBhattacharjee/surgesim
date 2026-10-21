@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@surgesim/engine": "workspace:*",
+    "@surgesim/importer": "workspace:*",
     "@surgesim/report": "workspace:*"
   },
   "devDependencies": {
