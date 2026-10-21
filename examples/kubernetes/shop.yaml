@@ -1,0 +1,89 @@
+# A small shop on Kubernetes: a web frontend, an orders API and a payments service.
+# Only what Surgesim reads is filled in; `kubectl get deploy,svc,hpa -o yaml` output works the same way.
+#
+#   surgesim import examples/kubernetes/shop.yaml --overlay examples/kubernetes/overlay.yaml --out shop.json
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: web-frontend }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: web } }
+  template:
+    metadata: { labels: { app: web } }
+    spec:
+      containers:
+        - name: web
+          image: shop/web:1.4
+          resources: { requests: { cpu: 500m }, limits: { cpu: "1" } }
+          readinessProbe: { httpGet: { path: /healthz, port: 8080 }, initialDelaySeconds: 30, periodSeconds: 5 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: orders-api }
+spec:
+  replicas: 3
+  selector: { matchLabels: { app: orders } }
+  template:
+    metadata: { labels: { app: orders } }
+    spec:
+      containers:
+        - name: orders
+          image: shop/orders:2.0
+          readinessProbe: { httpGet: { path: /ready, port: 8080 }, initialDelaySeconds: 20 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: payments }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: payments } }
+  template:
+    metadata: { labels: { app: payments } }
+    spec:
+      containers:
+        - name: payments
+          image: shop/payments:0.9
+---
+apiVersion: v1
+kind: Service
+metadata: { name: web }
+spec: { selector: { app: web }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: orders }
+spec: { selector: { app: orders }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: payments }
+spec: { selector: { app: payments }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: web-frontend }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: web-frontend }
+  minReplicas: 2
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 50 } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: orders-api }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: orders-api }
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } }
+  behavior:
+    scaleDown: { stabilizationWindowSeconds: 120 }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: shop-settings }
+data: { currency: EUR }

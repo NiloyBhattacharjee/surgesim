@@ -48,9 +48,10 @@ and easy to get wrong in production.
 | Rate limit design | What burst size protects the backend without rejecting too much? | `RejectionFraction`, backend utilisation |
 | Capacity gates | Fail a pull request if p99 under load passes 2 s | `--assert`, exit code 3 |
 | Reviewing infrastructure changes | Does this CDK change alter capacity? | `surgesim import` before and after, then `compare` |
+| Kubernetes HPA tuning | Does the HPA keep up with a spike, given a 30 s readiness delay? Is `minReplicas: 2` enough? | `surgesim import manifests.yaml --overlay overlay.yaml`: pods and backlog over time, p99 |
 
 **Not a good fit:** anything it does not model (databases, caches, network hops, load balancers, DynamoDB throttling,
-batching, FIFO queues, multi-region), questions about why your code is slow (service time is an *input*), correlated
+batching, FIFO queues, multi-region, Kubernetes memory limits, nodes and rolling updates), questions about why your code is slow (service time is an *input*), correlated
 failures such as a bad deploy, very low-traffic systems where capacity is not the problem, and any case where you have
 no data and would be inventing the traffic and timings.
 
@@ -204,6 +205,7 @@ prints the machine-readable form.
 | [`examples/stress/month-instance-m.json`](examples/stress/month-instance-m.json), [`-t.json`](examples/stress/month-instance-t.json) | a 30-day stress test (20 million requests, about 35 s per run): a general-purpose fleet versus a cheaper, slower burstable one under a daily/weekly cycle. Kept out of the top level because the test suite runs every example there |
 | [`examples/sdk/autoscaled-service.ts`](examples/sdk/autoscaled-service.ts) | the same system written with the TypeScript SDK |
 | [`examples/cloudformation/orders-stack.template.json`](examples/cloudformation/orders-stack.template.json) | a CDK-style template (SQS + DLQ + Lambda + ECS + autoscaling + API Gateway throttle) for `surgesim import`; [`.yaml`](examples/cloudformation/orders-stack.template.yaml) is the same stack in YAML with short-form intrinsics |
+| [`examples/kubernetes/shop.yaml`](examples/kubernetes/shop.yaml) + [`overlay.yaml`](examples/kubernetes/overlay.yaml) | three Deployments with HPAs and a call graph under a 4x spike: the frontend saturates until new pods pass their 30 s readiness delay, the backlog peaks near 4,500 and p99 reaches about 10 s; with 5 s startup both shrink by more than half ([walkthrough](docs/importing.md#example-will-the-hpa-keep-up)) |
 | [`examples/calibration/`](examples/calibration/README.md) | **synthetic** monitoring data with a known ground truth, to try `fit`, `fit-arrivals` and `calibrate` |
 
 ## Architecture
@@ -327,7 +329,8 @@ Not built yet:
 - Real-data calibration: the fitting and comparison tools have been exercised on synthetic data and on one small real
   program (two 10-minute runs), not on production traffic.
 - Importer: only SQS, Lambda, ECS services, SNS topics (sqs and lambda subscriptions), Application Auto Scaling target
-  tracking and API Gateway throttling.
+  tracking and API Gateway throttling; for Kubernetes, only Deployments, Services and HPAs (no memory limits or OOM
+  kills, nodes or cluster autoscaler, rolling updates, CPU throttling, or synchronous calls that hold the caller's pod).
 - Components: no DynamoDB, load balancers, FIFO queues, batching, step scaling or multi-region.
 - Distributions are fitted one at a time from independent samples; there is no mixture model, expression language or
   richer unit system.
