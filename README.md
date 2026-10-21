@@ -307,7 +307,7 @@ pnpm demo          # build and serve the browser demo (pnpm demo:build writes ap
 | [docs/sdk.md](docs/sdk.md) | the TypeScript SDK |
 | [sdks/python/README.md](sdks/python/README.md) | the Python SDK |
 | [docs/reports.md](docs/reports.md) | HTML reports and comparisons |
-| [docs/importing.md](docs/importing.md) | importing CloudFormation and CDK |
+| [docs/importing.md](docs/importing.md) | importing CloudFormation, CDK and Kubernetes manifests |
 | [docs/browser-demo.md](docs/browser-demo.md) | the browser demo and how embeddability is proven |
 | [docs/calibration.md](docs/calibration.md) | fitting inputs from measurements, comparing with observations, and what the validation showed |
 | [docs/testing.md](docs/testing.md) | the test layers, property-based tests, CI, and how to reproduce a failure |
