@@ -71,8 +71,34 @@ default), and a CPU utilisation target is treated as a target for busy workers.
 
 # Importing Kubernetes manifests
 
-`@surgesim/importer` also reads Kubernetes manifests: multi-document YAML (`---`), JSON, or the single `List` that
-`kubectl get deploy,svc,hpa -o yaml` prints.
+```bash
+kubectl get deploy,svc,hpa -o yaml > cluster.yaml
+surgesim import cluster.yaml --overlay overlay.yaml --out model.json
+surgesim run model.json --html report.html
+```
+
+`surgesim import` reads Kubernetes manifests too: multi-document YAML (`---`), JSON, or the single `List` that
+`kubectl get deploy,svc,hpa -o yaml` prints. A file is treated as manifests when its documents are Kubernetes objects
+(each has a `kind`), or whenever `--overlay` is given. The [overlay](#the-overlay-file) supplies traffic, service times
+and the call graph. The command-line flags override its top level: `--rate` replaces its traffic (rate profile
+included), `--service-time` and `--concurrency-per-pod` set the default for services the overlay leaves unset, and
+`--entry` replaces its entry points. Per-service values in the overlay always win.
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `--overlay FILE` | traffic, service times and call graph (YAML or JSON) | none |
+| `--rate N` | requests per second at each entry point | 10 |
+| `--service-time MEAN` | mean seconds per request (exponential) | 0.2 |
+| `--concurrency-per-pod N` | requests one pod serves at once | 10 |
+| `--startup-delay S` | seconds before a new pod takes traffic | the readiness probe's `initialDelaySeconds` |
+| `--entry NAME` | Service or Deployment (or `namespace/name`) that receives traffic; repeatable | Deployments behind a Service that nothing calls |
+| `--duration S`, `--seed N`, `--replications N`, `--name TEXT` | run settings | 600 s, 1, 5 |
+
+`--cold-start` and `--concurrency-per-task` are for CloudFormation only, and `--concurrency-per-pod` and
+`--startup-delay` for Kubernetes only. Using one with the other format is a usage error. An overlay with a bad
+distribution (for example `{ dist: nope }`) is reported as a validation error that points at the overlay.
+
+Programs use the same importer directly:
 
 ```ts
 import { importKubernetes, parseManifests } from "@surgesim/importer";

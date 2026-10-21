@@ -37,6 +37,8 @@ const USAGE = `Usage:
   surgesim compare <a> <b> --html compare.html                Compare two runs (results files or models)
   surgesim import <template.json|.yaml> [--out model.json] [--rate N] [--service-time MEAN] [--entry ID]...
                             Convert a CloudFormation / CDK template (cdk.out/*.template.json) to a model
+  surgesim import <manifests.yaml> [--overlay overlay.yaml] [--out model.json]
+                            Convert Kubernetes manifests (kubectl get deploy,svc,hpa -o yaml) to a model
   surgesim fit <data.csv> [--column NAME] [--scale K]       Fit a distribution to measured durations
   surgesim fit-arrivals <timestamps.csv> --window S         Fit an arrival rate profile from request timestamps
   surgesim calibrate <model> --observed observed.json       Compare a model with what the real system measured
@@ -69,6 +71,9 @@ Options:
   --service-time MEAN (import) Mean service time in seconds, exponential (default 0.2; templates do not say)
   --concurrency-per-task N  (import) Requests one ECS task handles at once (default 10)
   --cold-start S      (import) Cold start seconds for Lambda functions (default none)
+  --overlay FILE      (import, Kubernetes) Traffic, service times and call graph the manifests do not describe
+  --concurrency-per-pod N   (import, Kubernetes) Requests one pod serves at once (default 10)
+  --startup-delay S   (import, Kubernetes) Seconds before a new pod takes traffic (default: readinessProbe delay)
   --duration S        (import) Simulated seconds (default 600)
   --entry ID          (import) Entry point logical id or name (repeatable)
   --name TEXT         (import) Model name
@@ -122,6 +127,9 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
         "service-time": { type: "string" },
         "cold-start": { type: "string" },
         "concurrency-per-task": { type: "string" },
+        "concurrency-per-pod": { type: "string" },
+        "startup-delay": { type: "string" },
+        overlay: { type: "string" },
         duration: { type: "string" },
         entry: { type: "string", multiple: true },
         name: { type: "string" },
@@ -165,7 +173,7 @@ ${HINT}`);
 
   if (command === "import") {
     if (modelPath === undefined || positionals.length > 2) {
-      logger.error(`error: expected "surgesim import <template.json|.yaml> [--out model.json]"
+      logger.error(`error: expected "surgesim import <template.json|.yaml|manifests.yaml> [--out model.json]"
 ${HINT}`);
       return EXIT_USAGE;
     }
@@ -183,10 +191,12 @@ ${HINT}`);
     const coldStart = num("cold-start", values["cold-start"], false);
     const duration = num("duration", values.duration, true);
     const perTask = num("concurrency-per-task", values["concurrency-per-task"], true);
+    const startupDelay = num("startup-delay", values["startup-delay"], false);
     const iSeed = parseIntOption("seed", values.seed, 0);
     const iReps = parseIntOption("replications", values.replications, 1);
-    for (const v of [rate, serviceTime, coldStart, duration, perTask]) if (v === "bad") return EXIT_USAGE;
-    for (const v of [iSeed, iReps]) {
+    const iPerPod = parseIntOption("concurrency-per-pod", values["concurrency-per-pod"], 1);
+    for (const v of [rate, serviceTime, coldStart, duration, perTask, startupDelay]) if (v === "bad") return EXIT_USAGE;
+    for (const v of [iSeed, iReps, iPerPod]) {
       if (typeof v === "string") {
         logger.error(`error: ${v}`);
         return EXIT_USAGE;
@@ -202,6 +212,9 @@ ${HINT}`);
         coldStart: coldStart as number | undefined,
         duration: duration as number | undefined,
         concurrencyPerTask: perTask as number | undefined,
+        concurrencyPerPod: iPerPod as number | undefined,
+        startupDelay: startupDelay as number | undefined,
+        overlay: values.overlay,
         seed: iSeed as number | undefined,
         replications: iReps as number | undefined,
         entry: values.entry ?? [],

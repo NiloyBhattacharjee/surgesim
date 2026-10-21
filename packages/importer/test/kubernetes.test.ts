@@ -143,7 +143,7 @@ describe("importKubernetes: the example cluster", () => {
 
   it("traffic arrives only at Deployments behind a Service", () => {
     const sources = r.model.components.filter((c) => c.type === "EntityGenerator").map((c) => c.links!["next"]);
-    expect(sources).toEqual(["web-frontend", "orders-api"]);
+    expect(sources).toEqual(["web-frontend-queue", "orders-api-queue"]);
   });
 
   it("states its assumptions and approximations", () => {
@@ -169,6 +169,9 @@ describe("importKubernetes: simulation", () => {
     const c = res.timeSeries!.replications[0]!.values["web-frontend.Concurrency"]!;
     expect(c[6]).toBe(20); // t = 30
     expect(c[8]).toBe(40); // t = 40
+    // Overloaded requests wait in the Deployment's queue; none are rejected.
+    expect(out(res, "web-frontend.NumberThrottled").mean).toBe(0);
+    expect(out(res, "web-frontend-queue.MaxQueueLength").mean!).toBeGreaterThan(100);
   });
 
   it("scales in whole pods and reports pod-hours: Cost = average pods x hours", () => {
@@ -186,7 +189,7 @@ describe("importKubernetes: simulation", () => {
 describe("importKubernetes: options and edge cases", () => {
   it("entry picks Services or Deployments by name and warns about unknown ones", () => {
     const r = imported(objects(), { entry: ["orders", "mailer", "nope"] });
-    expect(r.model.components.filter((c) => c.type === "EntityGenerator").map((c) => c.links!["next"])).toEqual(["orders-api", "mailer"]);
+    expect(r.model.components.filter((c) => c.type === "EntityGenerator").map((c) => c.links!["next"])).toEqual(["orders-api-queue", "mailer-queue"]);
     expect(r.warnings.join("\n")).toMatch(/entry "nope" is not a Service or Deployment/);
   });
 
@@ -251,7 +254,7 @@ describe("importKubernetes: options and edge cases", () => {
     const objs = [inNs(deployment("api"), "prod"), inNs(svc, "prod"), inNs(deployment("api"), "staging"), inNs(svc, "staging")];
     const r = imported(objs, { entry: ["api", "staging/api"] });
     expect(r.warnings.join("\n")).toMatch(/entry "api" is ambiguous \(prod\/Deployment\/api, staging\/Deployment\/api\); write it as namespace\/name/);
-    expect(r.model.components.filter((c) => c.type === "EntityGenerator").map((c) => c.links!["next"])).toEqual(["staging-api"]);
+    expect(r.model.components.filter((c) => c.type === "EntityGenerator").map((c) => c.links!["next"])).toEqual(["staging-api-queue"]);
     // A Service and the Deployment it selects, sharing a name, are one match, not an ambiguity.
     expect(imported(objs, { entry: ["prod/api"] }).warnings.join("\n")).not.toMatch(/ambiguous/);
   });
@@ -359,9 +362,9 @@ describe("importKubernetes with an overlay", () => {
 
   it("wires the call graph with Branches: called share, and the rest completes", () => {
     expect(comp(r, "web-frontend")!.links!["next"]).toBe("web-frontend-calls");
-    expect(comp(r, "web-frontend-calls")).toMatchObject({ type: "Branch", inputs: { probabilities: [0.6, expect.closeTo(0.4, 12)] }, links: { targets: ["orders-api", "completed"] } });
+    expect(comp(r, "web-frontend-calls")).toMatchObject({ type: "Branch", inputs: { probabilities: [0.6, expect.closeTo(0.4, 12)] }, links: { targets: ["orders-api-queue", "completed"] } });
     // probability 1: no share left to complete here
-    expect(comp(r, "orders-api-calls")).toMatchObject({ inputs: { probabilities: [1] }, links: { targets: ["mailer"] } });
+    expect(comp(r, "orders-api-calls")).toMatchObject({ inputs: { probabilities: [1] }, links: { targets: ["mailer-queue"] } });
     expect(comp(r, "mailer")!.links!["next"]).toBe("completed");
   });
 
@@ -373,7 +376,7 @@ describe("importKubernetes with an overlay", () => {
 
   it("traffic follows the overlay's rate profile, at the entry it names", () => {
     const gens = r.model.components.filter((c) => c.type === "EntityGenerator");
-    expect(gens.map((g) => [g.links!["next"], g.inputs!["rateProfile"]])).toEqual([["web-frontend", [[0, 50], [300, 150]]]]);
+    expect(gens.map((g) => [g.links!["next"], g.inputs!["rateProfile"]])).toEqual([["web-frontend-queue", [[0, 50], [300, 150]]]]);
   });
 
   it("assumes only what the overlay leaves out, and says calls are asynchronous", () => {
@@ -389,7 +392,7 @@ describe("importKubernetes with an overlay", () => {
   it("without an entry, Deployments that others call get no traffic of their own", () => {
     const { entry, ...rest } = overlay();
     const gens = imported(objects(), rest).model.components.filter((c) => c.type === "EntityGenerator");
-    expect(gens.map((g) => g.links!["next"])).toEqual(["web-frontend"]); // orders-api is behind a Service, but called
+    expect(gens.map((g) => g.links!["next"])).toEqual(["web-frontend-queue"]); // orders-api is behind a Service, but called
   });
 
   it("simulates the call graph: latency = 0.04 + 0.6 x (0.12 + 0.01) s with ample capacity", () => {
