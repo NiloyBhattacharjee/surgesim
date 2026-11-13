@@ -20,6 +20,8 @@ export interface SimContext {
   createEntity(): MovingEntity;
   /** A copy of `entity` with a new id but the same creation time and (shallow-copied) attributes. */
   copyEntity(entity: MovingEntity): MovingEntity;
+  /** Called each time an entity enters a component, when the run was asked to trace (see `RunOptions.trace`). */
+  trace?(component: string, entity: MovingEntity): void;
 }
 
 /** What the model hands a component constructor. */
@@ -123,9 +125,16 @@ export class LinkedComponent extends StateEntity {
   /** Called once after all links are wired, before the run starts. Schedule initial events here. */
   start(): void {}
 
-  protected noteAdded(): void {
+  /** Count `entity` as accepted here, and report it to the run's trace. */
+  protected noteAdded(entity: MovingEntity): void {
     this.added++;
     this.inProgress++;
+    this.trace(entity);
+  }
+
+  /** Report that `entity` entered this component (for components that do not count with {@link noteAdded}). */
+  protected trace(entity: MovingEntity): void {
+    this.ctx.trace?.(this.name, entity);
   }
 
   protected noteCompleted(): void {

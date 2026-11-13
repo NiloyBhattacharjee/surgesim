@@ -3,7 +3,7 @@ import type { ModelDefinition, TimeSeriesConfig } from "../format/index.js";
 import { Kernel, Priority, type KernelLimits } from "../kernel/index.js";
 import type { LinkedComponent, MovingEntity, SimContext } from "../model/index.js";
 import { Rng } from "../rng/index.js";
-import type { ReplicationResult, TimeSeriesReplication } from "./results.js";
+import type { ReplicationResult, TimeSeriesReplication, TraceEvent } from "./results.js";
 
 /** One instantiated replication of a model: kernel, components, warm-up and sampling wired up. */
 export class Simulation {
@@ -21,6 +21,7 @@ export class Simulation {
    * @param index replication index (recorded in results)
    * @param timeSeries optional sampling configuration
    * @param limits optional safety limits (see {@link KernelLimits})
+   * @param trace optional: called each time an entity enters a component
    */
   constructor(
     model: ModelDefinition,
@@ -29,6 +30,7 @@ export class Simulation {
     timeSeries: TimeSeriesConfig | null = null,
     registry: ComponentRegistry = createDefaultRegistry(),
     limits: KernelLimits = {},
+    trace?: (event: TraceEvent) => void,
   ) {
     this.model = model;
     this.registry = registry;
@@ -40,6 +42,12 @@ export class Simulation {
       rng: (streamId) => new Rng(seed, streamId),
       createEntity: (): MovingEntity => ({ id: nextId++, createdAt: kernel.currentTick, attributes: {} }),
       copyEntity: (e): MovingEntity => ({ id: nextId++, createdAt: e.createdAt, attributes: { ...e.attributes } }),
+      ...(trace
+        ? {
+            trace: (component: string, e: MovingEntity) =>
+              trace({ replication: index, time: kernel.currentSeconds, component, entity: e.id, createdAt: kernel.ticksToSeconds(e.createdAt) }),
+          }
+        : {}),
     };
 
     for (const def of model.components) {

@@ -44,7 +44,7 @@ export class Topic extends LinkedComponent {
   }
 
   override addEntity(entity: MovingEntity): void {
-    this.noteAdded();
+    this.noteAdded(entity);
     this.noteCompleted();
     this.subscribers.forEach((s, i) => {
       const p = this.filter?.[i] ?? 1;

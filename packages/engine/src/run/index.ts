@@ -10,4 +10,5 @@ export type {
   TimeSeriesResult,
   TimeSeriesReplication,
   AssertionResult,
+  TraceEvent,
 } from "./results.js";

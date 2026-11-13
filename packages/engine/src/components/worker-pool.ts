@@ -175,7 +175,7 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
   }
 
   private begin(entity: MovingEntity, lease: Lease | null): void {
-    this.noteAdded();
+    this.noteAdded(entity);
     this.started++;
     this.setBusy(this.busy + 1);
     let seconds = Math.max(0, this.serviceTime.nextSample());

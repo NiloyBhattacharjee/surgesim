@@ -6,6 +6,9 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ## [Unreleased]
 
 ### Added
+- Session tracing: `runModel(model, { trace })` calls `trace({ replication, time, component, entity, createdAt })`
+  each time an entity enters a component, so individual requests can be followed (or animated) through a model.
+  Tracing never changes results and costs nothing when unused. `TraceEvent` is exported; see the engine README.
 - The browser demo lists every top-level `examples/*.json` (labelled with the model's `name`), generated at build
   time, so a new example is on the hosted demo, with its diagram and animated replay, once it is merged. Links use the
   file name (`?example=traffic-spike`); the old `?example=` labels still work.

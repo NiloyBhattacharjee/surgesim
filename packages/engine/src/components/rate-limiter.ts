@@ -66,7 +66,7 @@ export class RateLimiter extends LinkedComponent {
     if (this.currentTokens() >= 1 - EPSILON) {
       this.tokens = Math.max(0, this.tokens - 1);
       this.allowed++;
-      this.noteAdded();
+      this.noteAdded(entity);
       this.sendToNext(entity);
     } else {
       this.rejected++;

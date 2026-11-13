@@ -29,7 +29,7 @@ export class EntitySink extends LinkedComponent {
   }
 
   override addEntity(entity: MovingEntity): void {
-    this.noteAdded();
+    this.noteAdded(entity);
     const k = this.ctx.kernel;
     this.times.add(k.ticksToSeconds(k.currentTick - entity.createdAt));
     this.noteCompleted();
