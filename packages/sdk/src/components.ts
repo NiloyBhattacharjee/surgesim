@@ -136,7 +136,8 @@ export interface WorkerPoolProps extends Common {
   failureProbability?: number;
   costPerBusySecond?: number;
   costPerProvisionedSecond?: number;
-  costPerRequest?: number;
+  /** A number, or a distribution drawn once per request (e.g. the tokens an LLM call reads). */
+  costPerRequest?: Sampler;
   /** Pull from this Queue or MessageQueue. Omit to accept pushed entities (and throttle when full). */
   queue?: Ref;
   next?: Ref;

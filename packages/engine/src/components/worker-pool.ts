@@ -34,7 +34,7 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
       { key: "failureProbability", type: "number", unit: "dimensionless", min: 0, max: 1, default: 0, required: false, description: "Probability that an entity fails after its service time." },
       { key: "costPerBusySecond", type: "number", unit: "cost", min: 0, default: 0, required: false, description: "Price per busy-worker-second (serverless-style billing)." },
       { key: "costPerProvisionedSecond", type: "number", unit: "cost", min: 0, default: 0, required: false, description: "Price per provisioned-worker-second, busy or not (container/VM-style billing; follows autoscaling)." },
-      { key: "costPerRequest", type: "number", unit: "cost", min: 0, default: 0, required: false, description: "Price per request started." },
+      { key: "costPerRequest", type: "sampler", unit: "cost", min: 0, default: 0, required: false, description: "Price per request started: a number, or a distribution drawn once per request (e.g. the tokens an LLM call reads)." },
     ],
     links: [
       { key: "queue", description: "Queue or MessageQueue to pull from (pull mode). Omit to accept pushed entities.", required: false, accepts: "pullable" },
@@ -59,7 +59,11 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
   };
 
   private limit: number;
-  private readonly prices: { busy: number; provisioned: number; request: number };
+  private readonly prices: { busy: number; provisioned: number };
+  /** Charge per request started, drawn from its own stream so it never shifts the pool's other random draws. */
+  private readonly requestPrice: SampleProvider;
+  /** Sum of per-request charges over the measured window. */
+  private requestCharges = 0;
   private readonly serviceTime: SampleProvider;
   private readonly coldStart: SampleProvider;
   private readonly failureDraw: SampleProvider;
@@ -81,7 +85,6 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
   private throttled = 0;
   private pushed = 0;
   private staleAcks = 0;
-  private started = 0;
 
   constructor(ctx: SimContext, init: ComponentInit) {
     super(ctx, init, "Idle");
@@ -90,8 +93,8 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     this.prices = {
       busy: i["costPerBusySecond"] as number,
       provisioned: i["costPerProvisionedSecond"] as number,
-      request: i["costPerRequest"] as number,
     };
+    this.requestPrice = this.makeSampler(asSampler(i["costPerRequest"]), "requestCost");
     this.serviceTime = this.makeSampler(asSampler(i["serviceTime"]), "serviceTime");
     this.coldStart = this.makeSampler(asSampler(i["coldStartTime"]), "coldStartTime");
     this.failureDraw = this.makeSampler({ dist: "uniform", min: 0, max: 1 }, "failure");
@@ -134,7 +137,7 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     const tps = this.ctx.kernel.ticksPerSecond;
     const busySeconds = this.busyStat.integral(this.now) / tps;
     const provisionedSeconds = this.limitStat.integral(this.now) / tps;
-    return busySeconds * this.prices.busy + provisionedSeconds * this.prices.provisioned + this.started * this.prices.request;
+    return busySeconds * this.prices.busy + provisionedSeconds * this.prices.provisioned + this.requestCharges;
   }
 
   override setLink(key: string, target: LinkedComponent): void {
@@ -176,7 +179,7 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
 
   private begin(entity: MovingEntity, lease: Lease | null): void {
     this.noteAdded();
-    this.started++;
+    this.requestCharges += Math.max(0, this.requestPrice.nextSample());
     this.setBusy(this.busy + 1);
     let seconds = Math.max(0, this.serviceTime.nextSample());
     if (!this.takeWarmInstance()) {
@@ -227,7 +230,7 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     super.resetStatistics();
     this.busyStat.reset(this.now);
     this.limitStat.reset(this.now);
-    this.started = 0;
+    this.requestCharges = 0;
     this.coldStarts = 0;
     this.succeeded = 0;
     this.failed = 0;
