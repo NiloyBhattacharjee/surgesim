@@ -72,3 +72,17 @@ export interface RunResults {
   /** Present when the model (or the caller) defined assertions. */
   assertions?: AssertionResult[];
 }
+
+/** One entity entering one component (see `RunOptions.trace`). Times are in seconds. */
+export interface TraceEvent {
+  /** Replication index, from 0. */
+  replication: number;
+  /** When it entered. */
+  time: number;
+  /** The component it entered. */
+  component: string;
+  /** Entity id, unique within a replication. A Topic's copies get new ids. */
+  entity: number;
+  /** When the entity (or the original it was copied from) was created. */
+  createdAt: number;
+}

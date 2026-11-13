@@ -41,7 +41,7 @@ export class Branch extends LinkedComponent {
   }
 
   override addEntity(entity: MovingEntity): void {
-    this.noteAdded();
+    this.noteAdded(entity);
     this.noteCompleted();
     const u = this.rng.nextFloat();
     const i = this.cumulative.findIndex((c) => u < c);

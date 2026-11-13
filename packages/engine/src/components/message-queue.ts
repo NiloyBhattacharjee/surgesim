@@ -93,7 +93,7 @@ export class MessageQueue extends LinkedComponent implements PullSource {
   }
 
   override addEntity(entity: MovingEntity): void {
-    this.noteAdded();
+    this.noteAdded(entity);
     this.requests++;
     this.makeVisible({ entity, receiveCount: 0, visibleAt: this.now });
   }

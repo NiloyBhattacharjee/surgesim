@@ -92,8 +92,9 @@ export class EntityGenerator extends LinkedComponent {
     this.setState("Generating");
     for (let b = this.batchSize(); b > 0; b--) {
       this.generated++;
-      this.noteAdded();
-      this.sendToNext(this.ctx.createEntity());
+      const entity = this.ctx.createEntity();
+      this.noteAdded(entity);
+      this.sendToNext(entity);
       if (this.maxNumber !== undefined && this.generated >= this.maxNumber) return this.finish();
     }
     if (this.mode === "interval") {
