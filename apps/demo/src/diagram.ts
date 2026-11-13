@@ -21,6 +21,18 @@ const LOOK: Record<string, [label: string, kind: string, name: string]> = {
 };
 const look = (type: string): [string, string, string] => LOOK[type] ?? [type, "control", type[0]!.toLowerCase() + type.slice(1)];
 
+/** File name for downloading a model: its `name` in kebab case (`My model` → `my-model.json`), or `model.json`. */
+export function modelFileName(json: string): string {
+  let name: unknown;
+  try {
+    name = (JSON.parse(json) as { name?: unknown } | null)?.name;
+  } catch {
+    // Invalid JSON still downloads, so work in progress is never lost.
+  }
+  const slug = typeof name === "string" ? name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60).replace(/-+$/, "") : "";
+  return `${slug || "model"}.json`;
+}
+
 /** Whether `targetType` may be the target of link `key` on a `fromType` component (the link's role check). */
 export function canLink(fromType: string, key: string, targetType: string): boolean {
   const accepts = byType.get(fromType)?.links.find((l) => l.key === key)?.accepts;

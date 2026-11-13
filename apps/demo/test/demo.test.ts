@@ -1,3 +1,4 @@
+import { readdirSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,7 @@ import { loadModel, runModel } from "@surgesim/engine";
 import { handleRun, type RunResponse } from "../src/handler.js";
 import { importForDemo } from "../src/kubernetes.js";
 
+const exampleFiles = readdirSync(fileURLToPath(new URL("../../../examples/", import.meta.url))).filter((f) => f.endsWith(".json"));
 const exampleJson = async (file: string): Promise<unknown> =>
   JSON.parse(await readFile(fileURLToPath(new URL(`../../../examples/${file}`, import.meta.url)), "utf8"));
 
@@ -62,6 +64,14 @@ describe("handleRun (the worker's logic)", () => {
     const a = handleRun({ json, replications: 1, seed: 1 });
     const b = handleRun({ json, replications: 1, seed: 2 });
     expect(a.ok && b.ok && a.html !== b.html).toBe(true);
+  });
+});
+
+describe("every example runs in the demo", () => {
+  it.each(exampleFiles)("%s runs and has something to animate", async (f) => {
+    const r = handleRun({ json: await exampleJson(f), replications: 1 });
+    if (!r.ok) throw new Error(JSON.stringify(r.errors));
+    expect(Object.keys(r.playback.values).length).toBeGreaterThan(0);
   });
 });
 
@@ -126,9 +136,11 @@ describe("the built demo", () => {
     expect(html.slice(0, start) + html.slice(end + "</script>".length)).not.toMatch(/<script/i);
   });
 
-  it("embeds every example model", () => {
-    for (const name of ["Autoscaled service", "Traffic spike", "SQS visibility timeout", "Serverless cold starts", "Retry storm", "M/M/1"]) {
-      expect(built.html).toContain(name);
+  it("embeds every top-level example model, so a new one needs no change to the page", async () => {
+    expect(exampleFiles.length).toBeGreaterThanOrEqual(12);
+    for (const f of exampleFiles) {
+      const { name } = (await exampleJson(f)) as { name: string };
+      expect(built.html, f).toContain(JSON.stringify(name).slice(1, -1));
     }
   });
 

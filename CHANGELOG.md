@@ -6,6 +6,11 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ## [Unreleased]
 
 ### Added
+- The browser demo lists every top-level `examples/*.json` (labelled with the model's `name`), generated at build
+  time, so a new example is on the hosted demo, with its diagram and animated replay, once it is merged. Links use the
+  file name (`?example=traffic-spike`); the old `?example=` labels still work.
+- A **Download model** button in the browser demo saves the model being edited (diagram changes included) as JSON,
+  named after the model, ready to add to `examples/`.
 - `EntitySink` input `percentiles: "streaming"`: approximate p50/p95/p99 from a t-digest in constant memory, for long
   or high-rate runs and the browser demo. The default stays `"exact"`. ([#20](https://github.com/NiloyBhattacharjee/surgesim/issues/20))
 - Comparison reports show **what changed in the model** (settings, components added or removed, inputs, links and

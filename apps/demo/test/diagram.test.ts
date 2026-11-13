@@ -1,6 +1,6 @@
 import { loadModel } from "@surgesim/engine";
 import { describe, expect, it } from "vitest";
-import { SCHEMAS, addComponent, canLink, layout, removeComponent, renameComponent, setLink, type Model } from "../src/diagram.js";
+import { SCHEMAS, addComponent, canLink, layout, modelFileName, removeComponent, renameComponent, setLink, type Model } from "../src/diagram.js";
 
 const base = (): Model => ({ version: 1, settings: { duration: 60 }, components: [] }) as Model;
 
@@ -74,5 +74,18 @@ describe("diagram model edits", () => {
     expect(m.components![0]!.links).toEqual({});
     expect(m.settings.timeSeries!.outputs).toEqual([]);
     expect(m.assertions).toEqual([]);
+  });
+});
+
+describe("modelFileName (Download model)", () => {
+  it("names the file after the model, in kebab case", () => {
+    expect(modelFileName(JSON.stringify({ name: "Multi-agent workflow: how many sessions fit in a token budget?" }))).toBe(
+      "multi-agent-workflow-how-many-sessions-fit-in-a-token-budget.json",
+    );
+    expect(modelFileName(JSON.stringify({ name: "Traffic spike: 50/s -> 250/s" }))).toBe("traffic-spike-50-s-250-s.json");
+  });
+
+  it("falls back to model.json without a usable name, even for invalid JSON", () => {
+    for (const json of ["{", "null", "{}", JSON.stringify({ name: 5 }), JSON.stringify({ name: "!!!" })]) expect(modelFileName(json)).toBe("model.json");
   });
 });
