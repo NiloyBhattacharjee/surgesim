@@ -71,6 +71,11 @@ export const SPECS = {
     links: ["targets"],
     outputs: ["NumberRouted"],
   },
+  CostTotal: {
+    inputs: [],
+    links: ["sources"],
+    outputs: ["Cost"],
+  },
 } as const;
 
 type Spec = typeof SPECS;
@@ -186,4 +191,9 @@ export interface BranchProps extends Common {
   targets: Ref[];
   /** One probability per target, adding up to 1. */
   probabilities: number[];
+}
+
+export interface CostTotalProps extends Common {
+  /** WorkerPools and MessageQueues whose Cost is added up. */
+  sources: Ref[];
 }

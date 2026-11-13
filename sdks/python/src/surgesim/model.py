@@ -195,6 +195,10 @@ class Model:
         matching ``probabilities`` entry (they must add up to 1)."""
         return self._make("Branch", name, props)
 
+    def cost_total(self, name: str, **props: Any) -> Component:
+        """Adds up the Cost of the WorkerPools and MessageQueues in ``sources=[...]``: one output for a whole budget."""
+        return self._make("CostTotal", name, props)
+
     def custom(self, type: str, name: str, inputs: Optional[Dict[str, Any]] = None, links: Optional[Dict[str, Component]] = None) -> Component:  # noqa: A002
         """Add a component of any type, including ones from a custom engine registry."""
         if name in self._components:

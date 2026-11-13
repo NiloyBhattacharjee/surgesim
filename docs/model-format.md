@@ -276,10 +276,24 @@ some requests call a downstream service (route the rest to an `EntitySink`). Dra
 
 Link: `targets` (a **list**, role `receiver`, **required**). Output: `NumberRouted`.
 
+### `CostTotal`
+Adds up the `Cost` of its sources, so one output (and one assertion) covers a whole budget. `Cost` is in whatever
+unit the prices are: money, or tokens when a pool's `costPerRequest` is the tokens a call reads and `costPerBusySecond`
+the tokens it writes per second (see [`examples/multi-agent-token-budget.json`](../examples/multi-agent-token-budget.json)).
+Entities never pass through it.
+
+```json
+{ "type": "CostTotal", "name": "tokens", "links": { "sources": ["planner", "coder", "reviewer"] } }
+```
+
+No inputs. Link: `sources` (a **list**, role `costed`, **required**). Output: `Cost`, the sum of the sources' `Cost` over
+the measured window (after `warmUp`). Gate a budget with an assertion such as
+`{ "output": "tokens.Cost", "op": "<=", "value": 20000000, "statistic": "max" }`.
+
 ### Roles
-`Queue` has roles `receiver`, `queue`, `pullable`; `MessageQueue` has `receiver`, `pullable`; `WorkerPool` has
-`receiver`, `scalable`; `Topic` and `Branch` have `receiver`. `Server.queue` needs role `queue` (so a plain `Queue`); `WorkerPool.queue` needs `pullable`
-(either); `Autoscaler.target` needs `scalable`.
+`Queue` has roles `receiver`, `queue`, `pullable`; `MessageQueue` has `receiver`, `pullable`, `costed`; `WorkerPool` has
+`receiver`, `scalable`, `costed`; `Topic` and `Branch` have `receiver`. `Server.queue` needs role `queue` (so a plain `Queue`); `WorkerPool.queue` needs `pullable`
+(either); `Autoscaler.target` needs `scalable`; `CostTotal.sources` needs `costed`.
 
 ## Assertions
 

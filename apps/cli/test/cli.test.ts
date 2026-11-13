@@ -76,6 +76,16 @@ describe("example models run end to end", () => {
     expect(at(300)).toBeGreaterThan(3000); // end of spike: thousands waiting
     expect(at(500)).toBeLessThan(50); // drained
   });
+
+  it("multi-agent-token-budget uses the closed-form tokens per session", async () => {
+    const h = harness({ m: readFileSync(join(examplesDir, "multi-agent-token-budget.json"), "utf8") });
+    expect(await h.call(["run", "m", "--replications", "20", "--json", "r"])).toBe(EXIT_OK);
+    const outputs: { id: string; mean: number }[] = JSON.parse(h.fs.files.get("r")!).outputs;
+    const mean = (id: string) => outputs.find((o) => o.id === id)!.mean;
+    // E[call] = costPerRequest + costPerBusySecond × E[serviceTime]; coder and reviewer are visited 1 / 0.7 times.
+    const expected = 4000 + 80 * 3 + 0.6 * (25000 + 80 * 12) + (15000 + 80 * 20 + 12000 + 80 * 6) / 0.7;
+    expect(mean("tokens.Cost") / mean("sessions.NumberGenerated") / expected).toBeCloseTo(1, 1); // sessions still running at the end bias it ~1%
+  });
 });
 
 describe("error handling", () => {

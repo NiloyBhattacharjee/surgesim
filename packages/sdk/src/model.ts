@@ -3,6 +3,7 @@ import {
   SPECS,
   type AutoscalerProps,
   type BranchProps,
+  type CostTotalProps,
   type EntityGeneratorProps,
   type EntitySinkProps,
   type MessageQueueProps,
@@ -153,6 +154,11 @@ export class Model {
   /** Probabilistic router: sends each entity to one target, chosen with the given probabilities. */
   branch(name: string, props: BranchProps): Component<OutputOf<"Branch">> {
     return this.make("Branch", name, props);
+  }
+
+  /** Adds up the Cost of its `sources` (WorkerPools, MessageQueues): one output for a whole budget. */
+  costTotal(name: string, props: CostTotalProps): Component<OutputOf<"CostTotal">> {
+    return this.make("CostTotal", name, props);
   }
 
   /**
