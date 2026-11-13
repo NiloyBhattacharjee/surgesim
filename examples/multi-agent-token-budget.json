@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "Multi-agent workflow: how many sessions fit in a token budget?",
-  "description": "One hour of agent sessions (one every 10 s on average, about 360). A planner agent reads each task; 60% of sessions then need a researcher; every session goes to a coder and then a reviewer, which sends 30% back for rework, so some sessions use the coder and reviewer several times. Every Cost output counts tokens, not money: costPerRequest is the prompt/context tokens one call reads and costPerBusySecond the tokens it writes per second, so a longer call writes more. Expected tokens per session = 4,240 (planner) + 0.6 x 25,960 (researcher) + (16,600 + 12,480) / 0.7 (coder and reviewer, 1/0.7 visits each) = about 61,400, and the run agrees. The CostTotal `tokens` adds the four agents up, so sessions a budget covers = budget / (tokens.Cost / sessions.NumberGenerated): a 20M-token budget covers about 325 sessions, fewer than this hour sends. The assertion is a 25M-token hourly budget (about 400 sessions), checked against the worst replication; raise the rework probability or the researcher's context tokens and watch it fail.",
+  "description": "One hour of agent sessions (one every 10 s on average, about 360). A planner agent reads each task; 60% of sessions then need a researcher; every session goes to a coder and then a reviewer, which sends 30% back for rework, so some sessions use the coder and reviewer several times. Every Cost output counts tokens, not money: costPerRequest is the prompt/context tokens one call reads (lognormal, as context size varies from call to call) and costPerBusySecond the tokens it writes per second, so a longer call writes more. Expected tokens per session = 4,240 (planner) + 0.6 x 25,960 (researcher) + (16,600 + 12,480) / 0.7 (coder and reviewer, 1/0.7 visits each) = about 61,400, and the run agrees. The CostTotal `tokens` adds the four agents up, so sessions a budget covers = budget / (tokens.Cost / sessions.NumberGenerated): a 20M-token budget covers about 325 sessions, fewer than this hour sends. The assertion is a 25M-token hourly budget (about 400 sessions), checked against the worst replication; raise the rework probability or the researcher's context tokens and watch it fail.",
   "settings": {
     "duration": 3600,
     "warmUp": 0,
@@ -46,7 +46,11 @@
           "mean": 3,
           "stdDev": 1.5
         },
-        "costPerRequest": 4000,
+        "costPerRequest": {
+          "dist": "lognormal",
+          "mean": 4000,
+          "stdDev": 2000
+        },
         "costPerBusySecond": 80
       },
       "links": {
@@ -81,7 +85,11 @@
           "mean": 12,
           "stdDev": 6
         },
-        "costPerRequest": 25000,
+        "costPerRequest": {
+          "dist": "lognormal",
+          "mean": 25000,
+          "stdDev": 12000
+        },
         "costPerBusySecond": 80
       },
       "links": {
@@ -103,7 +111,11 @@
           "mean": 20,
           "stdDev": 10
         },
-        "costPerRequest": 15000,
+        "costPerRequest": {
+          "dist": "lognormal",
+          "mean": 15000,
+          "stdDev": 7000
+        },
         "costPerBusySecond": 80
       },
       "links": {
@@ -125,7 +137,11 @@
           "mean": 6,
           "stdDev": 3
         },
-        "costPerRequest": 12000,
+        "costPerRequest": {
+          "dist": "lognormal",
+          "mean": 12000,
+          "stdDev": 6000
+        },
         "costPerBusySecond": 80
       },
       "links": {

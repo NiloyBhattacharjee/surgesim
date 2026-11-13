@@ -6,6 +6,9 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ## [Unreleased]
 
 ### Added
+- `WorkerPool.costPerRequest` takes a distribution as well as a number: one draw per request started, from its own
+  random stream, so other results are unchanged. Use it for charges that vary per request, such as the tokens an LLM
+  call reads; the multi-agent token budget example now does. Constant prices behave exactly as before.
 - The browser demo lists every top-level `examples/*.json` (labelled with the model's `name`), generated at build
   time, so a new example is on the hosted demo, with its diagram and animated replay, once it is merged. Links use the
   file name (`?example=traffic-spike`); the old `?example=` labels still work.

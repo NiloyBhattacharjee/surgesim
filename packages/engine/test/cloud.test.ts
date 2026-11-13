@@ -488,3 +488,36 @@ describe("CostTotal: one output for a whole budget", () => {
     expect(errors).toEqual([expect.objectContaining({ component: "total", key: "sources" })]);
   });
 });
+
+describe("WorkerPool costPerRequest as a distribution", () => {
+  const pool = (costPerRequest: unknown, seed = 1) =>
+    model(
+      [
+        gen("gen", "q", { interArrivalTime: 0.01, maxNumber: 20_000 }),
+        { type: "Queue", name: "q" },
+        { type: "WorkerPool", name: "pool", inputs: { concurrency: 50, serviceTime: { dist: "exponential", mean: 0.2 }, costPerRequest }, links: { queue: "q", next: "sink" } },
+        sink("sink"),
+      ],
+      { duration: 1000, seed },
+    );
+
+  it("draws once per request: the total matches n x mean (20000 exponential draws, mean 50)", () => {
+    // Sum of 20000 exponential(50) draws: mean 1e6, sd sqrt(20000) x 50 ~ 7071; allow 4 sd.
+    const r = run(pool({ dist: "exponential", mean: 50 }));
+    expect(val(r, "pool.NumberSucceeded")).toBe(20_000);
+    expect(Math.abs(val(r, "pool.Cost")! - 1_000_000)).toBeLessThan(4 * 7071);
+  });
+
+  it("uses its own random stream: every other output is unchanged from the constant price", () => {
+    const constant = run(pool(50));
+    const drawn = run(pool({ dist: "exponential", mean: 50 }));
+    expect(val(constant, "pool.Cost")).toBe(1_000_000);
+    for (const id of ["sink.mean", "sink.p99", "pool.Utilisation", "q.MaxQueueLength"]) expect(val(drawn, id)).toBe(val(constant, id));
+  });
+
+  it("counts a negative draw as no charge", () => {
+    // Normal(0, 1) clamped at 0 has mean 1/sqrt(2 pi) ~ 0.399; 20000 draws: sd of the sum ~ sqrt(20000 x 0.341) ~ 83.
+    const r = run(pool({ dist: "normal", mean: 0, stdDev: 1 }));
+    expect(Math.abs(val(r, "pool.Cost")! - 20_000 / Math.sqrt(2 * Math.PI))).toBeLessThan(4 * 83);
+  });
+});

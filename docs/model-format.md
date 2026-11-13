@@ -168,7 +168,7 @@ omit `queue` and send entities to the pool; when every worker is busy the entity
 | `failureProbability` | number in [0, 1] | `0` | Chance an entity fails after its service time. |
 | `costPerBusySecond` | number ≥ 0 (cost) | `0` | Price per busy-worker-second (serverless-style billing). |
 | `costPerProvisionedSecond` | number ≥ 0 (cost) | `0` | Price per provisioned-worker-second, busy or idle; follows autoscaling. |
-| `costPerRequest` | number ≥ 0 (cost) | `0` | Price per request started. |
+| `costPerRequest` | sampler ≥ 0 (cost) | `0` | Price per request started. A distribution is drawn once per request (negative draws count as 0), for charges that vary, such as the tokens an LLM call reads. |
 
 Links: `queue` (role `pullable`), `next`, `onFailure`, `onThrottle` (role `receiver`, all optional).
 Failures: with `onFailure` the entity goes there and is acknowledged; otherwise a `MessageQueue` source
@@ -178,7 +178,8 @@ Outputs: `Utilisation` (busy / provisioned concurrency), `AverageBusyWorkers`, `
 (current limit), `AverageConcurrency`, `ColdStarts`, `NumberSucceeded`, `NumberFailed`, `NumberThrottled`,
 `ThrottleFraction` (throttled / pushed), `Cost`, `StaleAcks`.
 
-`Cost = busySeconds × costPerBusySecond + provisionedSeconds × costPerProvisionedSecond + requestsStarted × costPerRequest`,
+`Cost = busySeconds × costPerBusySecond + provisionedSeconds × costPerProvisionedSecond + Σ costPerRequest` (one draw per
+request started; with a constant price that is `requestsStarted × costPerRequest`),
 over the measured window (after `warmUp`). `provisionedSeconds` is the time-integral of the concurrency limit.
 
 A pool without a queue and without cold starts is an M/M/c/c loss system, whose blocking probability is
@@ -278,8 +279,8 @@ Link: `targets` (a **list**, role `receiver`, **required**). Output: `NumberRout
 
 ### `CostTotal`
 Adds up the `Cost` of its sources, so one output (and one assertion) covers a whole budget. `Cost` is in whatever
-unit the prices are: money, or tokens when a pool's `costPerRequest` is the tokens a call reads and `costPerBusySecond`
-the tokens it writes per second (see [`examples/multi-agent-token-budget.json`](../examples/multi-agent-token-budget.json)).
+unit the prices are: money, or tokens when a pool's `costPerRequest` is the tokens a call reads (a distribution if it
+varies from call to call) and `costPerBusySecond` the tokens it writes per second (see [`examples/multi-agent-token-budget.json`](../examples/multi-agent-token-budget.json)).
 Entities never pass through it.
 
 ```json
