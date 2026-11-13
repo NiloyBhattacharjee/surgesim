@@ -1,26 +1,31 @@
-import { mountDiagram } from "./diagram.js";
+import { modelFileName, mountDiagram } from "./diagram.js";
 import type { RunRequest, RunResponse } from "./handler.js";
 import { importForDemo } from "./kubernetes.js";
-import mm1 from "../../../examples/mm1.json" with { type: "json" };
-import spike from "../../../examples/traffic-spike.json" with { type: "json" };
-import sqs from "../../../examples/sqs-dlq.json" with { type: "json" };
-import coldStart from "../../../examples/serverless-cold-start.json" with { type: "json" };
-import retryStorm from "../../../examples/retry-storm.json" with { type: "json" };
-import autoscaled from "../../../examples/autoscaled-service.json" with { type: "json" };
 import shopManifests from "../../../examples/kubernetes/shop.yaml";
 import shopOverlay from "../../../examples/kubernetes/overlay.yaml";
 
 /** Injected by the build: the worker bundle as source text, so the page needs no other file. */
 declare const __WORKER_SOURCE__: string;
+/** Injected by the build: every examples/*.json, keyed by file name without ".json" (also the ?example= value). */
+declare const __EXAMPLES__: Record<string, { name?: string }>;
 
-const EXAMPLES: Record<string, unknown> = {
-  "Autoscaled service (SLO gates)": autoscaled,
-  "Traffic spike: 50/s to 250/s": spike,
-  "SQS visibility timeout and DLQ": sqs,
-  "Serverless cold starts and throttling": coldStart,
-  "Retry storm": retryStorm,
-  "M/M/1 queue (theory check)": mm1,
-  "Blank (build your own)": { version: 1, name: "My model", settings: { duration: 600, warmUp: 60, replications: 3 }, components: [] },
+/** Picker label (the model's name) → model, and → its ?example= key. */
+const EXAMPLES: Record<string, unknown> = {};
+const KEY: Record<string, string> = {};
+for (const [file, model] of Object.entries(__EXAMPLES__)) {
+  const label = model.name ?? file;
+  EXAMPLES[label] = model;
+  KEY[label] = file;
+}
+EXAMPLES["Blank (build your own)"] = { version: 1, name: "My model", settings: { duration: 600, warmUp: 60, replications: 3 }, components: [] };
+/** ?example= values from before the picker was generated, so links already shared keep working. */
+const OLD_LINKS: Record<string, string> = {
+  "Autoscaled service (SLO gates)": "autoscaled-service",
+  "Traffic spike: 50/s to 250/s": "traffic-spike",
+  "SQS visibility timeout and DLQ": "sqs-dlq",
+  "Serverless cold starts and throttling": "serverless-cold-start",
+  "Retry storm": "retry-storm",
+  "M/M/1 queue (theory check)": "mm1",
 };
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -62,7 +67,7 @@ function load(name: string): void {
   diagram.reset();
   if (!$("diagram").hidden) diagram.render();
   const u = new URL(location.href);
-  u.searchParams.set("example", name);
+  u.searchParams.set("example", KEY[name] ?? name);
   history.replaceState(null, "", u);
 }
 
@@ -171,12 +176,19 @@ function importAndRun(): void {
 
 picker.addEventListener("change", () => load(picker.value));
 runButton.addEventListener("click", run);
+$("download-model").addEventListener("click", () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([editor.value.trimEnd() + "\n"], { type: "application/json" }));
+  a.download = modelFileName(editor.value);
+  a.click();
+});
 $("k8s-import").addEventListener("click", importAndRun);
 for (const t of tabs) t.addEventListener("click", () => show(t.id.slice("tab-".length) as View));
 
 const params = new URL(location.href).searchParams;
-const wanted = params.get("example");
-const initial = wanted !== null && wanted in EXAMPLES ? wanted : (Object.keys(EXAMPLES)[0] as string);
+const asked = params.get("example");
+const wanted = asked === null ? undefined : (OLD_LINKS[asked] ?? asked);
+const initial = (wanted !== undefined && Object.keys(EXAMPLES).find((label) => KEY[label] === wanted || label === wanted)) || (Object.keys(EXAMPLES)[0] as string);
 picker.value = initial;
 show("diagram");
 load(initial);

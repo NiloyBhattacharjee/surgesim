@@ -2,7 +2,7 @@
 // Worker whose source is embedded in the page, so the file works when double-clicked (file://),
 // from any static host, or attached to an email. Sources are bundled directly (no tsc step needed).
 import { build } from "esbuild";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,6 +17,17 @@ const alias = {
 // .yaml files (the Kubernetes example) are embedded as text.
 const common = { loader: { ".yaml": "text" }, bundle: true, format: "iife", platform: "neutral", mainFields: ["module", "main"], target: "es2022", write: false, legalComments: "none", alias, logLevel: "silent" };
 
+/**
+ * Every model in examples/ (top level only: stress/ and calibration/ are too slow or not demos), keyed by file name
+ * without ".json". A new example appears in the demo's picker, animated diagram included, without touching the page.
+ */
+async function readExamples() {
+  const dir = resolve(here, "../../examples");
+  const files = (await readdir(dir)).filter((f) => f.endsWith(".json")).sort();
+  const entries = await Promise.all(files.map(async (f) => [f.slice(0, -".json".length), JSON.parse(await readFile(join(dir, f), "utf8"))]));
+  return Object.fromEntries(entries);
+}
+
 /** Build the demo. Returns the worker source (for tests) and the path of the page. */
 export async function buildDemo({ outDir = join(here, "dist") } = {}) {
   const worker = await build({ ...common, entryPoints: [join(here, "src/worker.ts")] });
@@ -27,7 +38,7 @@ export async function buildDemo({ outDir = join(here, "dist") } = {}) {
     entryPoints: [join(here, "src/page.ts")],
     // The page carries the YAML parser for the Kubernetes tab; minified, the file stays near its old size.
     minify: true,
-    define: { __WORKER_SOURCE__: JSON.stringify(workerSource) },
+    define: { __WORKER_SOURCE__: JSON.stringify(workerSource), __EXAMPLES__: JSON.stringify(await readExamples()) },
   });
   const pageJs = page.outputFiles[0].text.replace(/<\/script/gi, "<\/script");
   const template = await readFile(join(here, "src/index.template.html"), "utf8");

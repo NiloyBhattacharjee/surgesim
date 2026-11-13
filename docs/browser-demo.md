@@ -12,7 +12,18 @@ pnpm demo            # builds, then serves http://localhost:5173/
 bundled and run in a **Web Worker** whose source is embedded in the page, so the file works when double-clicked
 (`file://`), from any static host, or attached to an email. Nothing is fetched and nothing leaves the machine. It lets
 you pick an example, edit the model, run it, and read the HTML report in place (with a download button). Add
-`?run=1&example=Retry%20storm` to a link to open an example and run it immediately.
+`?run=1&example=retry-storm` to a link to open an example and run it immediately: the value is the file name in
+`examples/` without `.json`.
+
+The picker lists **every top-level `examples/*.json`**, labelled with the model's `name`: the build embeds them all, so
+a new example is in the demo (diagram and animated replay included) as soon as it is merged, with no change to the page.
+The diagram is drawn from the model's components and links, and the replay animates each component's current-value
+outputs, so nothing about a scenario is hand-written for the demo. Keep top-level examples quick to run (`stress/`
+and `calibration/` are left out).
+
+**Download model** saves the model in the editor (including diagram edits) as JSON, named after its `name`
+(`My model` → `my-model.json`). To publish a scenario built here, save it into `examples/` and open a pull request; once
+it is merged, it is in the hosted demo.
 
 ## Kubernetes tab
 
