@@ -29,7 +29,7 @@ export class MessageQueue extends LinkedComponent implements PullSource {
     type: "MessageQueue",
     description:
       "SQS-style queue: received messages are hidden for a visibility timeout and redelivered unless acknowledged; after maxReceiveCount receives they go to a dead-letter queue.",
-    roles: ["receiver", "pullable"],
+    roles: ["receiver", "pullable", "costed"],
     inputs: [
       { key: "visibilityTimeout", type: "number", unit: "time", min: 0.000001, default: 30, required: false, description: "Seconds a received message stays hidden before it is redelivered." },
       { key: "maxReceiveCount", type: "integer", unit: "dimensionless", min: 1, required: false, description: "Receives allowed before a message is dead-lettered (when its visibility timeout expires again). Unlimited if omitted." },
@@ -45,7 +45,7 @@ export class MessageQueue extends LinkedComponent implements PullSource {
       { key: "AverageInFlight", unit: "dimensionless", description: "Time-weighted average number of in-flight messages.", get: (q) => q.flightStat.mean(q.now) },
       { key: "AverageQueueTime", unit: "time", description: "Mean time a message was visible before being received (each receive counts).", get: (q) => q.waitTally.mean() },
       { key: "NumberRequests", unit: "dimensionless", description: "Billable API requests: sends + receives + deletes.", get: (q) => q.requests },
-      { key: "Cost", unit: "cost", description: "Request charges over the measured window.", get: (q) => q.requests * q.pricePerRequest },
+      { key: "Cost", unit: "cost", description: "Request charges over the measured window.", get: (q) => q.cost() },
       { key: "NumberReceived", unit: "dimensionless", description: "Receive operations (a redelivered message counts each time).", get: (q) => q.received },
       { key: "NumberRedelivered", unit: "dimensionless", description: "Messages that became visible again because the visibility timeout expired.", get: (q) => q.redelivered },
       { key: "NumberDeadLettered", unit: "dimensionless", description: "Messages that exhausted maxReceiveCount.", get: (q) => q.deadLettered },
@@ -157,6 +157,11 @@ export class MessageQueue extends LinkedComponent implements PullSource {
   private setFlight(n: number): void {
     this.flight = n;
     this.flightStat.set(this.now, n);
+  }
+
+  /** Request charges over the measured window (see the `Cost` output). */
+  cost(): number {
+    return this.requests * this.pricePerRequest;
   }
 
   override resetStatistics(): void {

@@ -6,6 +6,10 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ## [Unreleased]
 
 ### Added
+- `CostTotal`, a component that adds up the `Cost` of the `WorkerPool`s and `MessageQueue`s it links to (`sources`),
+  so one output and one assertion cover a whole budget. Both types gain the role `costed`. The SDKs have `costTotal()` /
+  `cost_total()`. New example [examples/multi-agent-token-budget.json](examples/multi-agent-token-budget.json) uses it
+  to count tokens across four agents and estimate how many sessions a token budget covers.
 - `EntitySink` input `percentiles: "streaming"`: approximate p50/p95/p99 from a t-digest in constant memory, for long
   or high-rate runs and the browser demo. The default stays `"exact"`. ([#20](https://github.com/NiloyBhattacharjee/surgesim/issues/20))
 - Comparison reports show **what changed in the model** (settings, components added or removed, inputs, links and

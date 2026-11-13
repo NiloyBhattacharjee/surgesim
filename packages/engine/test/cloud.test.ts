@@ -454,3 +454,37 @@ describe("cloud components: composition, determinism and validation", () => {
     expect(val(r, "pool.NumberSucceeded")).toBe(4);
   });
 });
+
+describe("CostTotal: one output for a whole budget", () => {
+  const costed = (settings?: object) =>
+    model(
+      [
+        gen("gen", "mq", { interArrivalTime: 1, maxNumber: 10 }),
+        { type: "MessageQueue", name: "mq", inputs: { costPerMillionRequests: 1_000_000 } },
+        { type: "WorkerPool", name: "pool", inputs: { concurrency: 1, serviceTime: 2, costPerRequest: 100, costPerBusySecond: 10 }, links: { queue: "mq", next: "sink" } },
+        sink("sink"),
+        { type: "CostTotal", name: "total", links: { sources: ["mq", "pool"] } },
+      ],
+      settings,
+    );
+
+  it("adds up its sources' Cost (hand total)", () => {
+    // 10 messages, one worker, 2 s each: the last finishes at t=20 (duration 40).
+    // pool: 10 x 100 + 20 busy s x 10 = 1200; mq: 10 sends + 10 receives + 10 deletes at 1 each = 30.
+    const r = run(costed({ duration: 40 }));
+    expect(val(r, "pool.Cost")).toBeCloseTo(1200, 6);
+    expect(val(r, "mq.Cost")).toBeCloseTo(30, 6);
+    expect(val(r, "total.Cost")).toBeCloseTo(1230, 6);
+  });
+
+  it("follows the warm-up window of its sources", () => {
+    const r = run(costed({ duration: 40, warmUp: 9 }));
+    expect(val(r, "total.Cost")).toBeLessThan(1230);
+    expect(val(r, "total.Cost")).toBeCloseTo(val(r, "pool.Cost")! + val(r, "mq.Cost")!, 6);
+  });
+
+  it("only links to components with a Cost", () => {
+    const errors = errorsOf([sink("s"), { type: "CostTotal", name: "total", links: { sources: ["s"] } }]);
+    expect(errors).toEqual([expect.objectContaining({ component: "total", key: "sources" })]);
+  });
+});

@@ -11,5 +11,7 @@ export type { Scalable } from "./autoscaler.js";
 export { EntitySink } from "./sink.js";
 export { Topic } from "./topic.js";
 export { Branch } from "./branch.js";
+export { CostTotal } from "./cost-total.js";
+export type { Costed } from "./cost-total.js";
 export { ComponentRegistry, createDefaultRegistry } from "./registry.js";
 export type { ComponentClass } from "./registry.js";

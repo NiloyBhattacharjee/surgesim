@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "name": "Multi-agent workflow: how many sessions fit in a token budget?",
+  "description": "One hour of agent sessions (one every 10 s on average, about 360). A planner agent reads each task; 60% of sessions then need a researcher; every session goes to a coder and then a reviewer, which sends 30% back for rework, so some sessions use the coder and reviewer several times. Every Cost output counts tokens, not money: costPerRequest is the prompt/context tokens one call reads and costPerBusySecond the tokens it writes per second, so a longer call writes more. Expected tokens per session = 4,240 (planner) + 0.6 x 25,960 (researcher) + (16,600 + 12,480) / 0.7 (coder and reviewer, 1/0.7 visits each) = about 61,400, and the run agrees. The CostTotal `tokens` adds the four agents up, so sessions a budget covers = budget / (tokens.Cost / sessions.NumberGenerated): a 20M-token budget covers about 325 sessions, fewer than this hour sends. The assertion is a 25M-token hourly budget (about 400 sessions), checked against the worst replication; raise the rework probability or the researcher's context tokens and watch it fail.",
+  "settings": {
+    "duration": 3600,
+    "warmUp": 0,
+    "seed": 11,
+    "replications": 5,
+    "timeSeries": {
+      "interval": 60,
+      "outputs": [
+        "tokens.Cost",
+        "planner.Cost",
+        "researcher.Cost",
+        "coder.Cost",
+        "reviewer.Cost"
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "EntityGenerator",
+      "name": "sessions",
+      "inputs": {
+        "interArrivalTime": {
+          "dist": "exponential",
+          "mean": 10
+        }
+      },
+      "links": {
+        "next": "planner-queue"
+      }
+    },
+    {
+      "type": "Queue",
+      "name": "planner-queue"
+    },
+    {
+      "type": "WorkerPool",
+      "name": "planner",
+      "inputs": {
+        "concurrency": 5,
+        "serviceTime": {
+          "dist": "lognormal",
+          "mean": 3,
+          "stdDev": 1.5
+        },
+        "costPerRequest": 4000,
+        "costPerBusySecond": 80
+      },
+      "links": {
+        "queue": "planner-queue",
+        "next": "needs-research"
+      }
+    },
+    {
+      "type": "Branch",
+      "name": "needs-research",
+      "inputs": {
+        "probabilities": [0.6, 0.4]
+      },
+      "links": {
+        "targets": [
+          "researcher-queue",
+          "coder-queue"
+        ]
+      }
+    },
+    {
+      "type": "Queue",
+      "name": "researcher-queue"
+    },
+    {
+      "type": "WorkerPool",
+      "name": "researcher",
+      "inputs": {
+        "concurrency": 5,
+        "serviceTime": {
+          "dist": "lognormal",
+          "mean": 12,
+          "stdDev": 6
+        },
+        "costPerRequest": 25000,
+        "costPerBusySecond": 80
+      },
+      "links": {
+        "queue": "researcher-queue",
+        "next": "coder-queue"
+      }
+    },
+    {
+      "type": "Queue",
+      "name": "coder-queue"
+    },
+    {
+      "type": "WorkerPool",
+      "name": "coder",
+      "inputs": {
+        "concurrency": 8,
+        "serviceTime": {
+          "dist": "lognormal",
+          "mean": 20,
+          "stdDev": 10
+        },
+        "costPerRequest": 15000,
+        "costPerBusySecond": 80
+      },
+      "links": {
+        "queue": "coder-queue",
+        "next": "reviewer-queue"
+      }
+    },
+    {
+      "type": "Queue",
+      "name": "reviewer-queue"
+    },
+    {
+      "type": "WorkerPool",
+      "name": "reviewer",
+      "inputs": {
+        "concurrency": 5,
+        "serviceTime": {
+          "dist": "lognormal",
+          "mean": 6,
+          "stdDev": 3
+        },
+        "costPerRequest": 12000,
+        "costPerBusySecond": 80
+      },
+      "links": {
+        "queue": "reviewer-queue",
+        "next": "approved"
+      }
+    },
+    {
+      "type": "Branch",
+      "name": "approved",
+      "inputs": {
+        "probabilities": [0.7, 0.3]
+      },
+      "links": {
+        "targets": [
+          "done",
+          "coder-queue"
+        ]
+      }
+    },
+    {
+      "type": "EntitySink",
+      "name": "done"
+    },
+    {
+      "type": "CostTotal",
+      "name": "tokens",
+      "links": {
+        "sources": [
+          "planner",
+          "researcher",
+          "coder",
+          "reviewer"
+        ]
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "name": "within 25M tokens/hour",
+      "output": "tokens.Cost",
+      "op": "<=",
+      "value": 25000000,
+      "statistic": "max"
+    },
+    {
+      "name": "sessions finish within 10 min",
+      "output": "done.p99",
+      "op": "<=",
+      "value": 600
+    }
+  ]
+}

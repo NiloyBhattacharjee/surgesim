@@ -18,4 +18,5 @@ export type {
   AutoscalerProps,
   TopicProps,
   BranchProps,
+  CostTotalProps,
 } from "./components.js";
