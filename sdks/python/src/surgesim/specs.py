@@ -69,4 +69,9 @@ SPECS = {
         "links": ["targets"],
         "outputs": ["NumberRouted"],
     },
+    "CostTotal": {
+        "inputs": [],
+        "links": ["sources"],
+        "outputs": ["Cost"],
+    },
 }

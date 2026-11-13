@@ -182,6 +182,7 @@ in TypeScript.
 | `Autoscaler` | target-tracking scaling with provisioning delay, scale-in cooldown or HPA-style stabilisation window, and whole-pod steps |
 | `Topic` | SNS-style fan-out: a copy of each message to every subscriber, with per-subscription filter probabilities |
 | `Branch` | probabilistic routing: each entity goes to one target (e.g. 60% of requests call a downstream service) |
+| `CostTotal` | adds up the `Cost` of several `WorkerPool`s and `MessageQueue`s, so one output and one assertion cover a whole budget (money, or tokens) |
 
 Every input, link and output is documented in [docs/model-format.md](docs/model-format.md), and `surgesim schema`
 prints the machine-readable form.
@@ -201,6 +202,7 @@ prints the machine-readable form.
 | [`examples/sns-fan-out.json`](examples/sns-fan-out.json) | a topic fans orders out to a fast billing queue and a filtered, under-provisioned audit queue: audit backs up (p95 about 3.4 s) while billing stays at 0.2 s |
 | [`examples/bounded-queue-overload.json`](examples/bounded-queue-overload.json) | M/M/2/50 under permanent overload: the bounded queue drops excess arrivals and latency stays capped near 12 s |
 | [`examples/two-stage-pipeline.json`](examples/two-stage-pipeline.json) | parse then enrich: the slower stage (about 88% utilised) holds the backlog and sets end-to-end p95; gated by an assertion |
+| [`examples/multi-agent-token-budget.json`](examples/multi-agent-token-budget.json) | a planner → researcher → coder → reviewer agent workflow with a rework loop, `Cost` counted in tokens: about 61,400 tokens per session, so a 20M-token budget covers about 325 sessions; a `CostTotal` adds the agents up and an assertion gates the hourly budget |
 | [`examples/diurnal-autoscaling-cost.json`](examples/diurnal-autoscaling-cost.json) | a compressed daily traffic cycle with an autoscaler held near 50% utilisation, showing provisioned cost versus backlog |
 | [`examples/stress/month-instance-m.json`](examples/stress/month-instance-m.json), [`-t.json`](examples/stress/month-instance-t.json) | a 30-day stress test (20 million requests, about 35 s per run): a general-purpose fleet versus a cheaper, slower burstable one under a daily/weekly cycle. Kept out of the top level because the test suite runs every example there |
 | [`examples/sdk/autoscaled-service.ts`](examples/sdk/autoscaled-service.ts) | the same system written with the TypeScript SDK |

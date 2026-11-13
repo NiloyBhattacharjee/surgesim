@@ -24,7 +24,7 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     type: "WorkerPool",
     description:
       "Worker pool with a concurrency limit, throttling, cold starts and failures. Pulls from a queue or accepts pushed entities.",
-    roles: ["receiver", "scalable"],
+    roles: ["receiver", "scalable", "costed"],
     inputs: [
       { key: "concurrency", type: "integer", unit: "dimensionless", min: 1, required: true, description: "Maximum workers busy at once (cold-starting workers count). An Autoscaler can change it during the run; this is the starting value." },
       { key: "serviceTime", type: "sampler", unit: "time", min: 0, required: true, description: "Service time per entity (seconds)." },
@@ -129,7 +129,8 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     return this.busyLifetime.integral(this.now);
   }
 
-  private cost(): number {
+  /** Charges over the measured window (see the `Cost` output). */
+  cost(): number {
     const tps = this.ctx.kernel.ticksPerSecond;
     const busySeconds = this.busyStat.integral(this.now) / tps;
     const provisionedSeconds = this.limitStat.integral(this.now) / tps;
