@@ -17,6 +17,10 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
   assertions) when both sides are models, and `surgesim compare` prints the same list. The MCP `compare` tool returns it
   as `modelChanges`, and `@surgesim/report` exports `diffModels`. ([#19](https://github.com/NiloyBhattacharjee/surgesim/issues/19))
 
+### Changed
+- The Python SDK needs Python 3.10 or later. Python 3.9 reached end of life in October 2025, and GitHub's runners no
+  longer provide it, so it could no longer be tested.
+
 ### Added
 - A drag-and-drop diagram editor in the browser demo: add components from a palette, link them by dragging between
   ports, and edit inputs in an inspector. It reads and writes the model JSON. See [docs/browser-demo.md](docs/browser-demo.md).

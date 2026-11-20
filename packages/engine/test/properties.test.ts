@@ -251,8 +251,8 @@ describe("statistics", () => {
         xs.forEach((x) => t.add(x));
         const lo = Math.min(...xs);
         const hi = Math.max(...xs);
-        expect(t.percentile(0)).toBe(lo);
-        expect(t.percentile(100)).toBe(hi);
+        expect(t.percentile(0) === lo, `p0 ${t.percentile(0)} is the minimum ${lo}`).toBe(true); // === because -0 and 0 are both the minimum of [-0]
+        expect(t.percentile(100) === hi, `p100 ${t.percentile(100)} is the maximum ${hi}`).toBe(true);
         let prev = -Infinity;
         for (const p of [0, 1, 25, 50, 75, 95, 99, 100]) {
           const v = t.percentile(p);

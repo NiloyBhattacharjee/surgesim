@@ -7,7 +7,7 @@ There are four layers, from fast and exact to slow and broad.
 | **Example-based tests** | `packages/*/test`, `apps/*/test`, `sdks/python/tests` | Specific behaviours with hand-calculated answers: queue timelines, Erlang-B, token buckets, CLI exit codes. |
 | **Property-based tests** | `packages/engine/test/properties.test.ts` | Rules that must hold for *any* input: the heap sorts, events run in the documented order, a model never loses a request, the loader never throws, a mutated model never crashes or hangs. |
 | **Cross-checks** | `packages/sdk/test/python.test.ts`, `calibration` (see [calibration.md](calibration.md)) | Two independent routes agreeing: TypeScript SDK versus Python SDK, and the simulator versus an independent simulator. |
-| **Continuous integration** | `.github/workflows/` | The same suite on Linux, macOS and Windows with Node 20 and 22, Python 3.9 to 3.13, plus the exit codes and the packaged install. |
+| **Continuous integration** | `.github/workflows/` | The same suite on Linux, macOS and Windows with Node 20 and 22, Python 3.10 to 3.13, plus the exit codes and the packaged install. |
 
 ```bash
 pnpm test           # everything in TypeScript (about 270 tests, a few seconds)
@@ -51,11 +51,11 @@ ran, so it cannot pass by rejecting everything.
 ## Continuous integration
 
 - `ci.yml` runs on every push to `main` and every pull request: type check, build, all tests and a smoke run of the built
-  command line on **Node 20 and 22 × Linux, macOS, Windows**; the Python SDK on **3.9 to 3.13**; the exit codes of the
+  command line on **Node 20 and 22 × Linux, macOS, Windows**; the Python SDK on **3.10 to 3.13**; the exit codes of the
   capacity gates (0 passes, 3 limit violated, 1 invalid model); and `npm pack` of every package followed by installing
   the tarballs into an empty project and running the CLI from there.
 - `fuzz.yml` runs weekly (and on demand) with a different seed and a much larger budget. A failure prints the seed.
 
 The workflows were checked with [actionlint](https://github.com/rhysd/actionlint). The test suite was run locally on
-Node 20, 22 and 24 and the Python tests on 3.11, 3.13 and 3.14. The matrix cells for macOS, Linux and Python 3.9 to 3.10
+Node 20, 22 and 24 and the Python tests on 3.11, 3.13 and 3.14. The matrix cells for macOS, Linux and Python 3.10
 run only on GitHub, so they have not been observed yet.
