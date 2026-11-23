@@ -44,7 +44,9 @@ jobs:
 
   python-sdk:
     name: Python ${{ matrix.python }} SDK
-    runs-on: ubuntu-latest
+    # ubuntu-latest (26.04) has no Python 3.9 build; pyproject still promises >=3.9.
+    # ponytail: drop 3.9 (and this pin) when bumping requires-python, before 24.04 runners are retired.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
