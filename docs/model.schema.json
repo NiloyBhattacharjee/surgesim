@@ -1,0 +1,1305 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json",
+  "title": "Surgesim model",
+  "description": "A Surgesim model, format version 1. Times are in seconds and rates per second. See docs/model-format.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "settings",
+    "components"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Schema location for editors; ignored by the engine."
+    },
+    "version": {
+      "const": 1,
+      "description": "Model format version."
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "duration"
+      ],
+      "properties": {
+        "duration": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Total simulated seconds, including warm-up."
+        },
+        "warmUp": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "Statistics are reset at this time (seconds); must be less than duration."
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1,
+          "description": "Base seed."
+        },
+        "replications": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Number of independent replications."
+        },
+        "ticksPerSecond": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1000000,
+          "description": "Simulation resolution."
+        },
+        "timeSeries": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "interval",
+            "outputs"
+          ],
+          "description": "Sample outputs over time.",
+          "properties": {
+            "interval": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Sampling interval (seconds)."
+            },
+            "outputs": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "pattern": "^.+\\.[^.]+$",
+                "description": "Output id \"<componentName>.<OutputKey>\"."
+              }
+            }
+          }
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "name"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "EntityGenerator",
+              "Queue",
+              "Server",
+              "EntitySink",
+              "MessageQueue",
+              "WorkerPool",
+              "RetryPolicy",
+              "RateLimiter",
+              "Autoscaler",
+              "Topic",
+              "Branch",
+              "Release",
+              "RollingUpdate",
+              "CostTotal"
+            ],
+            "description": "Component type."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique name; links and output ids refer to it."
+          },
+          "inputs": {
+            "type": "object"
+          },
+          "links": {
+            "type": "object",
+            "description": "Link key to target component name (or list of names)."
+          },
+          "stream": {
+            "type": "string",
+            "description": "RNG stream id; defaults to the component name."
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "EntityGenerator"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "mode": {
+                      "enum": [
+                        "interval",
+                        "rateProfile"
+                      ],
+                      "description": "Arrival mode.",
+                      "default": "interval"
+                    },
+                    "interArrivalTime": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "$ref": "#/definitions/distribution"
+                        }
+                      ],
+                      "description": "Time between arrivals (seconds). Interval mode."
+                    },
+                    "rateProfile": {
+                      "$ref": "#/definitions/rateProfile",
+                      "description": "Piecewise-constant Poisson rate: [[startSeconds, ratePerSecond], ...]. RateProfile mode."
+                    },
+                    "firstArrivalTime": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "$ref": "#/definitions/distribution"
+                        }
+                      ],
+                      "description": "Time of the first arrival (interval mode) or start of the process (rateProfile mode), in seconds.",
+                      "default": 0
+                    },
+                    "maxNumber": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Stop after generating this many entities. Unlimited if omitted."
+                    },
+                    "dispersionIndex": {
+                      "type": "number",
+                      "minimum": 1,
+                      "maximum": 1000,
+                      "description": "How bursty arrivals are: variance / mean of arrival counts, as surgesim fit-arrivals measures it (1 = Poisson). Above 1, arrivals come in simultaneous batches of geometric size with mean (D + 1) / 2, at a lower batch rate, so the average rate is unchanged.",
+                      "default": 1
+                    }
+                  },
+                  "required": [],
+                  "allOf": [
+                    {
+                      "if": {
+                        "properties": {
+                          "mode": {
+                            "const": "interval"
+                          }
+                        }
+                      },
+                      "then": {
+                        "required": [
+                          "interArrivalTime"
+                        ]
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "mode": {
+                            "const": "rateProfile"
+                          }
+                        },
+                        "required": [
+                          "mode"
+                        ]
+                      },
+                      "then": {
+                        "required": [
+                          "rateProfile"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "next": {
+                      "type": "string",
+                      "description": "Where generated entities are sent. Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    }
+                  },
+                  "required": []
+                }
+              },
+              "required": [
+                "inputs"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "Queue"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "maxLength": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Maximum number of waiting entities. Unlimited if omitted."
+                    }
+                  },
+                  "required": []
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {},
+                  "required": []
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "Server"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "capacity": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Number of parallel workers.",
+                      "default": 1
+                    },
+                    "serviceTime": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "$ref": "#/definitions/distribution"
+                        }
+                      ],
+                      "description": "Service time per entity (seconds)."
+                    }
+                  },
+                  "required": [
+                    "serviceTime"
+                  ]
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "queue": {
+                      "type": "string",
+                      "description": "Queue this server pulls from. Target: Queue."
+                    },
+                    "next": {
+                      "type": "string",
+                      "description": "Where served entities are sent. Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    }
+                  },
+                  "required": [
+                    "queue"
+                  ]
+                }
+              },
+              "required": [
+                "inputs",
+                "links"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "EntitySink"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "percentiles": {
+                      "enum": [
+                        "exact",
+                        "streaming"
+                      ],
+                      "description": "exact stores every time in system; streaming uses a t-digest in constant memory (approximate p50/p95/p99) for long or high-rate runs.",
+                      "default": "exact"
+                    }
+                  },
+                  "required": []
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {},
+                  "required": []
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "MessageQueue"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "visibilityTimeout": {
+                      "type": "number",
+                      "minimum": 0.000001,
+                      "description": "Seconds a received message stays hidden before it is redelivered.",
+                      "default": 30
+                    },
+                    "maxReceiveCount": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Receives allowed before a message is dead-lettered (when its visibility timeout expires again). Unlimited if omitted."
+                    },
+                    "costPerMillionRequests": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Price per million API requests (each send, receive and delete counts as one).",
+                      "default": 0
+                    }
+                  },
+                  "required": []
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "deadLetter": {
+                      "type": "string",
+                      "description": "Where messages that exhausted maxReceiveCount are sent. They are discarded (and counted) if omitted. Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    }
+                  },
+                  "required": []
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "WorkerPool"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "concurrency": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Maximum workers busy at once (cold-starting workers count). An Autoscaler can change it during the run; this is the starting value."
+                    },
+                    "serviceTime": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "$ref": "#/definitions/distribution"
+                        }
+                      ],
+                      "description": "Service time per entity (seconds)."
+                    },
+                    "coldStartTime": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "$ref": "#/definitions/distribution"
+                        }
+                      ],
+                      "description": "Extra seconds when a request has to start a new instance.",
+                      "default": 0
+                    },
+                    "idleTimeout": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Seconds an idle instance stays warm. Instances never expire if omitted."
+                    },
+                    "initialWarm": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Instances already warm at time 0 (capped at concurrency).",
+                      "default": 0
+                    },
+                    "failureProbability": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "Probability that an entity fails after its service time.",
+                      "default": 0
+                    },
+                    "costPerBusySecond": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Price per busy-worker-second (serverless-style billing).",
+                      "default": 0
+                    },
+                    "costPerProvisionedSecond": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Price per provisioned-worker-second, busy or not (container/VM-style billing; follows autoscaling).",
+                      "default": 0
+                    },
+                    "costPerRequest": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Price per request started.",
+                      "default": 0
+                    },
+                    "holdUntilRelease": {
+                      "type": "boolean",
+                      "description": "Keep the worker busy after service until the entity passes a Release (a synchronous call: the worker waits for the response). The Autoscaler does not count held workers as busy.",
+                      "default": false
+                    },
+                    "cpuOversubscription": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "CPU the pool would use with every worker computing, as a multiple of its CPU limit. Above 1, service times stretch once demand passes the limit (CFS throttling), and the Autoscaler sees CPU use capped at the limit.",
+                      "default": 1
+                    }
+                  },
+                  "required": [
+                    "concurrency",
+                    "serviceTime"
+                  ]
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "queue": {
+                      "type": "string",
+                      "description": "Queue or MessageQueue to pull from (pull mode). Omit to accept pushed entities. Target: Queue, MessageQueue."
+                    },
+                    "next": {
+                      "type": "string",
+                      "description": "Where successfully served entities are sent. Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    },
+                    "onFailure": {
+                      "type": "string",
+                      "description": "Where failed entities are sent (e.g. a RetryPolicy). Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    },
+                    "onThrottle": {
+                      "type": "string",
+                      "description": "Where entities rejected because the pool was full are sent (e.g. a RetryPolicy). Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    }
+                  },
+                  "required": []
+                }
+              },
+              "required": [
+                "inputs"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "RetryPolicy"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "maxAttempts": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Total attempts including the first.",
+                      "default": 3
+                    },
+                    "baseDelay": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Delay before the first retry (seconds).",
+                      "default": 0.1
+                    },
+                    "multiplier": {
+                      "type": "number",
+                      "minimum": 1,
+                      "description": "Backoff growth factor per retry.",
+                      "default": 2
+                    },
+                    "maxDelay": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Cap on the delay before jitter (seconds). Uncapped if omitted."
+                    },
+                    "jitter": {
+                      "enum": [
+                        "none",
+                        "full",
+                        "equal"
+                      ],
+                      "description": "Randomisation of each delay.",
+                      "default": "full"
+                    }
+                  },
+                  "required": []
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "next": {
+                      "type": "string",
+                      "description": "Where each attempt is sent (the thing that can fail). Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    },
+                    "giveUp": {
+                      "type": "string",
+                      "description": "Where entities go after exhausting maxAttempts. Dropped and counted if omitted. Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    }
+                  },
+                  "required": [
+                    "next"
+                  ]
+                }
+              },
+              "required": [
+                "links"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "RateLimiter"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "rate": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Tokens added per second (the sustained allowed rate)."
+                    },
+                    "burst": {
+                      "type": "number",
+                      "minimum": 1,
+                      "description": "Bucket size: the largest burst that passes at once. The bucket starts full."
+                    }
+                  },
+                  "required": [
+                    "rate",
+                    "burst"
+                  ]
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "next": {
+                      "type": "string",
+                      "description": "Where allowed entities are sent. Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    },
+                    "onReject": {
+                      "type": "string",
+                      "description": "Where rejected entities are sent. Dropped and counted if omitted. Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    }
+                  },
+                  "required": []
+                }
+              },
+              "required": [
+                "inputs"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "Autoscaler"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "targetUtilisation": {
+                      "type": "number",
+                      "minimum": 0.05,
+                      "maximum": 1,
+                      "description": "Busy workers / concurrency to aim for.",
+                      "default": 0.6
+                    },
+                    "evaluationInterval": {
+                      "type": "number",
+                      "minimum": 0.000001,
+                      "description": "Seconds between scaling decisions (and the metric averaging window).",
+                      "default": 60
+                    },
+                    "minConcurrency": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Never scale below this.",
+                      "default": 1
+                    },
+                    "maxConcurrency": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Never scale above this."
+                    },
+                    "scaleUpDelay": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Seconds before added capacity becomes available.",
+                      "default": 0
+                    },
+                    "scaleDownCooldown": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Minimum seconds since the last scaling change before scaling in.",
+                      "default": 300
+                    },
+                    "scaleDownStabilisation": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Kubernetes HPA scale-down stabilisation window (seconds): scale in to the highest desired value within this window. Replaces scaleDownCooldown when set."
+                    },
+                    "step": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Scale in whole multiples of this many workers (e.g. requests per pod).",
+                      "default": 1
+                    }
+                  },
+                  "required": [
+                    "maxConcurrency"
+                  ]
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "description": "The WorkerPool to scale. Target: WorkerPool."
+                    }
+                  },
+                  "required": [
+                    "target"
+                  ]
+                }
+              },
+              "required": [
+                "inputs",
+                "links"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "Topic"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "filterProbabilities": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "description": "One probability per subscriber that a message passes its filter policy (default: all pass)."
+                    }
+                  },
+                  "required": []
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "subscribers": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Where copies are delivered, in order. Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    }
+                  },
+                  "required": [
+                    "subscribers"
+                  ]
+                }
+              },
+              "required": [
+                "links"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "Branch"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "probabilities": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "description": "One probability per target; they must add up to 1."
+                    }
+                  },
+                  "required": [
+                    "probabilities"
+                  ]
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "targets": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Where entities are routed, in the same order as probabilities. Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    }
+                  },
+                  "required": [
+                    "targets"
+                  ]
+                }
+              },
+              "required": [
+                "inputs",
+                "links"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "Release"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {},
+                  "required": []
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "next": {
+                      "type": "string",
+                      "description": "Where entities go once their slots are freed. Target: Queue, EntitySink, MessageQueue, WorkerPool, RetryPolicy, RateLimiter, Topic, Branch, Release."
+                    }
+                  },
+                  "required": []
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "RollingUpdate"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "at": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Seconds into the run at which the update starts."
+                    },
+                    "readinessDelay": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Seconds from a new pod being created to it taking work.",
+                      "default": 0
+                    },
+                    "podSize": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Workers per pod.",
+                      "default": 1
+                    },
+                    "maxSurge": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Pods allowed above the desired count.",
+                      "default": 0
+                    },
+                    "maxSurgeFraction": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Added to maxSurge: this share of the pods at the start, rounded up.",
+                      "default": 0
+                    },
+                    "maxUnavailable": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Pods allowed below the desired count.",
+                      "default": 0
+                    },
+                    "maxUnavailableFraction": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1,
+                      "description": "Added to maxUnavailable: this share of the pods at the start, rounded down.",
+                      "default": 0
+                    }
+                  },
+                  "required": [
+                    "at"
+                  ]
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "description": "The WorkerPool to update. Target: WorkerPool."
+                    }
+                  },
+                  "required": [
+                    "target"
+                  ]
+                }
+              },
+              "required": [
+                "inputs",
+                "links"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "CostTotal"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {},
+                  "required": []
+                },
+                "links": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "sources": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Components whose Cost is added up. Target: MessageQueue, WorkerPool."
+                    }
+                  },
+                  "required": [
+                    "sources"
+                  ]
+                }
+              },
+              "required": [
+                "links"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "assertions": {
+      "type": "array",
+      "description": "Thresholds checked after the run; the CLI exits non-zero if any fail.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "output",
+          "op",
+          "value"
+        ],
+        "properties": {
+          "output": {
+            "type": "string",
+            "pattern": "^.+\\.[^.]+$",
+            "description": "Output id \"<componentName>.<OutputKey>\"."
+          },
+          "op": {
+            "enum": [
+              "<",
+              "<=",
+              ">",
+              ">=",
+              "=="
+            ]
+          },
+          "value": {
+            "type": "number",
+            "description": "Threshold, in the output's own unit."
+          },
+          "statistic": {
+            "enum": [
+              "mean",
+              "ci95Low",
+              "ci95High",
+              "min",
+              "max"
+            ],
+            "default": "mean",
+            "description": "Which number of the output to compare."
+          },
+          "name": {
+            "type": "string",
+            "description": "Label shown in reports."
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "distribution": {
+      "type": "object",
+      "required": [
+        "dist"
+      ],
+      "properties": {
+        "dist": {
+          "enum": [
+            "constant",
+            "uniform",
+            "exponential",
+            "normal",
+            "triangular",
+            "lognormal",
+            "empirical"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "dist": {
+                "const": "constant"
+              }
+            }
+          },
+          "then": {
+            "additionalProperties": false,
+            "required": [
+              "dist",
+              "value"
+            ],
+            "properties": {
+              "dist": {},
+              "value": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "dist": {
+                "const": "uniform"
+              }
+            }
+          },
+          "then": {
+            "additionalProperties": false,
+            "required": [
+              "dist",
+              "min",
+              "max"
+            ],
+            "properties": {
+              "dist": {},
+              "min": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "dist": {
+                "const": "exponential"
+              }
+            }
+          },
+          "then": {
+            "additionalProperties": false,
+            "required": [
+              "dist",
+              "mean"
+            ],
+            "properties": {
+              "dist": {},
+              "mean": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "dist": {
+                "const": "normal"
+              }
+            }
+          },
+          "then": {
+            "additionalProperties": false,
+            "required": [
+              "dist",
+              "mean",
+              "stdDev"
+            ],
+            "properties": {
+              "dist": {},
+              "mean": {
+                "type": "number"
+              },
+              "stdDev": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "dist": {
+                "const": "triangular"
+              }
+            }
+          },
+          "then": {
+            "additionalProperties": false,
+            "required": [
+              "dist",
+              "min",
+              "mode",
+              "max"
+            ],
+            "properties": {
+              "dist": {},
+              "min": {
+                "type": "number"
+              },
+              "mode": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "dist": {
+                "const": "lognormal"
+              }
+            }
+          },
+          "then": {
+            "additionalProperties": false,
+            "required": [
+              "dist",
+              "mean",
+              "stdDev"
+            ],
+            "properties": {
+              "dist": {},
+              "mean": {
+                "type": "number"
+              },
+              "stdDev": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "dist": {
+                "const": "empirical"
+              }
+            }
+          },
+          "then": {
+            "additionalProperties": false,
+            "required": [
+              "dist",
+              "points"
+            ],
+            "properties": {
+              "dist": {},
+              "points": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "array",
+                  "items": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "description": "[cumulative probability, value] pairs from probability 0 to 1."
+              }
+            }
+          }
+        }
+      ]
+    },
+    "rateProfile": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "array",
+        "items": [
+          {
+            "type": "number",
+            "minimum": 0
+          },
+          {
+            "type": "number",
+            "minimum": 0
+          }
+        ],
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "description": "[startSeconds, ratePerSecond] pairs with strictly increasing start times."
+    }
+  }
+}

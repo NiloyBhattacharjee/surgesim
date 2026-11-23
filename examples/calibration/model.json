@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json",
   "version": 1,
   "name": "Calibrated service (inputs fitted from the synthetic monitoring export)",
   "description": "Built only from `surgesim fit` and `surgesim fit-arrivals` output plus the known worker count (8). Run `surgesim calibrate examples/calibration/model.json --observed examples/calibration/observed.json` to compare it with what the system measured.",

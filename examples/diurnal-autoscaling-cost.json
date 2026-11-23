@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json",
   "version": 1,
   "name": "Daily traffic cycle: autoscaled fleet versus its cost",
   "description": "A compressed 'day' (1200 s) with a quiet night, a morning ramp, a midday peak and an evening decline feeds a queue-fed pool that an autoscaler holds near 50% utilisation. pool.Cost counts provisioned worker-seconds, so the cost of the scaling policy is visible next to the backlog it permits. Try a larger scaleDownCooldown or minConcurrency to trade cost for headroom.",

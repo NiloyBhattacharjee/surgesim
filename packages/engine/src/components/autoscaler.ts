@@ -6,6 +6,8 @@ import type { ComponentSchema } from "../schema/index.js";
 export interface Scalable {
   readonly concurrency: number;
   setConcurrency(n: number): void;
+  /** Add to (or take from) the workers serving, without changing `concurrency`: pods replaced by a RollingUpdate. */
+  adjustCapacity(workers: number): void;
   /** Cumulative busy-worker-ticks since time 0, unaffected by the warm-up statistics reset. */
   busyWorkerTicks(): number;
 }

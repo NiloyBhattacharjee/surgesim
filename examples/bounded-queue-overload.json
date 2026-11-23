@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json",
   "version": 1,
   "name": "Bounded queue under overload: M/M/2/50 drops what it cannot hold",
   "description": "Offered load is 5/s against 2 servers at 0.5 s each (capacity 4/s), so the system is permanently overloaded. The queue holds at most 50 entities and drops the rest (queue.NumberDropped); latency is bounded by the buffer (about 50 / 4 = 12.5 s) instead of growing without limit. Compare with an unbounded queue by deleting maxLength.",

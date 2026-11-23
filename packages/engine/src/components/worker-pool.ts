@@ -18,13 +18,18 @@ import type { Lease, PullSource, QueueWaiter } from "./pullable.js";
  * - **Failures**: after service, an entity fails with probability `failureProbability`. A failure
  *   goes to `onFailure` if linked (and is acked). Otherwise, with a MessageQueue source it is left
  *   unacked so the visibility timeout redelivers it; with a plain Queue or push mode it is lost.
+ * - **Synchronous calls** (`holdUntilRelease`): after service the worker stays busy, waiting for the response,
+ *   until the entity passes a Release. The Autoscaler does not count a held worker as busy: waiting uses no CPU.
+ * - **CPU throttling** (`cpuOversubscription` above 1): the workers demand more CPU than their limit once enough are
+ *   computing, so service stretches by `max(1, computing / concurrency * cpuOversubscription)`, and the Autoscaler
+ *   sees CPU use capped at the limit.
  */
 export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable {
   static readonly schema: ComponentSchema<WorkerPool> = {
     type: "WorkerPool",
     description:
       "Worker pool with a concurrency limit, throttling, cold starts and failures. Pulls from a queue or accepts pushed entities.",
-    roles: ["receiver", "scalable"],
+    roles: ["receiver", "scalable", "costed"],
     inputs: [
       { key: "concurrency", type: "integer", unit: "dimensionless", min: 1, required: true, description: "Maximum workers busy at once (cold-starting workers count). An Autoscaler can change it during the run; this is the starting value." },
       { key: "serviceTime", type: "sampler", unit: "time", min: 0, required: true, description: "Service time per entity (seconds)." },
@@ -35,6 +40,8 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
       { key: "costPerBusySecond", type: "number", unit: "cost", min: 0, default: 0, required: false, description: "Price per busy-worker-second (serverless-style billing)." },
       { key: "costPerProvisionedSecond", type: "number", unit: "cost", min: 0, default: 0, required: false, description: "Price per provisioned-worker-second, busy or not (container/VM-style billing; follows autoscaling)." },
       { key: "costPerRequest", type: "number", unit: "cost", min: 0, default: 0, required: false, description: "Price per request started." },
+      { key: "holdUntilRelease", type: "boolean", unit: "dimensionless", default: false, required: false, description: "Keep the worker busy after service until the entity passes a Release (a synchronous call: the worker waits for the response). The Autoscaler does not count held workers as busy." },
+      { key: "cpuOversubscription", type: "number", unit: "dimensionless", min: 0, default: 1, required: false, description: "CPU the pool would use with every worker computing, as a multiple of its CPU limit. Above 1, service times stretch once demand passes the limit (CFS throttling), and the Autoscaler sees CPU use capped at the limit." },
     ],
     links: [
       { key: "queue", description: "Queue or MessageQueue to pull from (pull mode). Omit to accept pushed entities.", required: false, accepts: "pullable" },
@@ -44,10 +51,12 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     ],
     outputs: [
       { key: "Utilisation", unit: "dimensionless", description: "Time-weighted busy workers / provisioned concurrency.", get: (p) => p.busyStat.mean(p.now) / p.limitStat.mean(p.now) },
-      { key: "Concurrency", unit: "dimensionless", series: true, description: "Current concurrency limit (changes when autoscaled).", get: (p) => p.limit },
+      { key: "Concurrency", unit: "dimensionless", series: true, description: "Current concurrency limit (changes when autoscaled, and during a RollingUpdate).", get: (p) => p.available },
       { key: "AverageConcurrency", unit: "dimensionless", description: "Time-weighted average concurrency limit.", get: (p) => p.limitStat.mean(p.now) },
       { key: "AverageBusyWorkers", unit: "dimensionless", description: "Time-weighted average number of busy workers.", get: (p) => p.busyStat.mean(p.now) },
-      { key: "BusyWorkers", unit: "dimensionless", series: true, description: "Workers currently busy.", get: (p) => p.busy },
+      { key: "BusyWorkers", unit: "dimensionless", series: true, description: "Workers currently busy, including held ones.", get: (p) => p.busy },
+      { key: "HeldWorkers", unit: "dimensionless", series: true, description: "Workers currently held waiting for a Release (holdUntilRelease).", get: (p) => p.held },
+      { key: "AverageCpuStretch", unit: "dimensionless", description: "Mean factor by which CPU throttling stretched service times (1 means never throttled).", get: (p) => (p.started === 0 ? NaN : p.stretchTotal / p.started) },
       { key: "ColdStarts", unit: "dimensionless", description: "Requests that had to start a new instance (no idle warm instance).", get: (p) => p.coldStarts },
       { key: "NumberSucceeded", unit: "dimensionless", description: "Entities served successfully.", get: (p) => p.succeeded },
       { key: "NumberFailed", unit: "dimensionless", description: "Entities that failed after service.", get: (p) => p.failed },
@@ -58,16 +67,22 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     ],
   };
 
+  /** The nominal limit, which an Autoscaler sets and reads. */
   private limit: number;
+  /** Workers a RollingUpdate has added or taken away for now. */
+  private adjustment = 0;
   private readonly prices: { busy: number; provisioned: number; request: number };
   private readonly serviceTime: SampleProvider;
   private readonly coldStart: SampleProvider;
   private readonly failureDraw: SampleProvider;
   private readonly failureProbability: number;
+  private readonly hold: boolean;
+  private readonly cpuRatio: number;
+  private stretchTotal = 0;
   private readonly idleTimeoutTicks: number | undefined;
   private readonly busyStat: TimeWeightedStat;
   private readonly limitStat: TimeWeightedStat;
-  /** Busy workers since time 0; never reset, so an Autoscaler can read deltas across the warm-up reset. */
+  /** Busy, not held, workers since time 0; never reset, so an Autoscaler can read deltas across the warm-up reset. */
   private readonly busyLifetime: TimeWeightedStat;
   /** Tick at which each idle warm instance became idle, oldest first. */
   private readonly idle: number[] = [];
@@ -75,6 +90,7 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
   private onFailure: LinkedComponent | null = null;
   private onThrottle: LinkedComponent | null = null;
   private busy = 0;
+  private held = 0;
   private coldStarts = 0;
   private succeeded = 0;
   private failed = 0;
@@ -96,6 +112,8 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     this.coldStart = this.makeSampler(asSampler(i["coldStartTime"]), "coldStartTime");
     this.failureDraw = this.makeSampler({ dist: "uniform", min: 0, max: 1 }, "failure");
     this.failureProbability = i["failureProbability"] as number;
+    this.hold = i["holdUntilRelease"] as boolean;
+    this.cpuRatio = i["cpuOversubscription"] as number;
     const timeout = i["idleTimeout"] as number | undefined;
     this.idleTimeoutTicks = timeout === undefined ? undefined : ctx.kernel.secondsToTicks(timeout);
     this.busyStat = new TimeWeightedStat(ctx.kernel.currentTick, 0);
@@ -109,7 +127,12 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     return this.ctx.kernel.currentTick;
   }
 
-  /** Current concurrency limit (see {@link Scalable}). */
+  /** Workers that may be busy now. */
+  private get available(): number {
+    return Math.max(0, this.limit + this.adjustment);
+  }
+
+  /** Current nominal concurrency limit (see {@link Scalable}). */
   get concurrency(): number {
     return this.limit;
   }
@@ -120,7 +143,18 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
    */
   setConcurrency(n: number): void {
     this.limit = Math.max(1, Math.floor(n));
-    this.limitStat.set(this.now, this.limit);
+    this.capacityChanged();
+  }
+
+  /** See {@link Scalable}. Taking workers away never interrupts running work, as with lowering the limit. */
+  adjustCapacity(workers: number): void {
+    this.adjustment += workers;
+    this.capacityChanged();
+  }
+
+  private capacityChanged(): void {
+    this.limitStat.set(this.now, this.available);
+    this.recordCpu();
     this.queueHasEntity();
   }
 
@@ -129,7 +163,8 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     return this.busyLifetime.integral(this.now);
   }
 
-  private cost(): number {
+  /** Charges over the measured window (see the `Cost` output). */
+  cost(): number {
     const tps = this.ctx.kernel.ticksPerSecond;
     const busySeconds = this.busyStat.integral(this.now) / tps;
     const provisionedSeconds = this.limitStat.integral(this.now) / tps;
@@ -156,7 +191,7 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
   /** Push mode: start the entity if a worker is free, otherwise throttle it. */
   override addEntity(entity: MovingEntity): void {
     this.pushed++;
-    if (this.busy >= this.limit) {
+    if (this.busy >= this.available) {
       this.throttled++;
       this.onThrottle?.addEntity(entity);
       return;
@@ -166,7 +201,7 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
 
   /** Pull mode: fill free workers from the queue. */
   queueHasEntity(): void {
-    while (this.source !== null && this.busy < this.limit) {
+    while (this.source !== null && this.busy < this.available) {
       const lease = this.source.receive();
       if (lease === null) break;
       this.begin(lease.entity, lease);
@@ -177,12 +212,24 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     this.noteAdded();
     this.started++;
     this.setBusy(this.busy + 1);
-    let seconds = Math.max(0, this.serviceTime.nextSample());
+    const stretch = this.cpuStretch();
+    this.stretchTotal += stretch;
+    let seconds = Math.max(0, this.serviceTime.nextSample()) * stretch;
     if (!this.takeWarmInstance()) {
       this.coldStarts++;
       seconds += Math.max(0, this.coldStart.nextSample());
     }
     this.ctx.kernel.schedule(this.secondsToTicks(seconds), Priority.DEFAULT, () => this.end(entity, lease));
+  }
+
+  /**
+   * How much the CPU limit slows a request starting now.
+   * ponytail: fixed when service starts (the mean matches processor sharing, see the M/M/1-PS test) and fluid, so no
+   * 100 ms CFS periods; re-time in-flight work if tail latency under throttling matters.
+   */
+  private cpuStretch(): number {
+    if (this.cpuRatio <= 1) return 1;
+    return Math.max(1, ((this.busy - this.held) / this.available) * this.cpuRatio);
   }
 
   /** Reclaim expired idle instances, then take the most recently used one. False if none is warm. */
@@ -196,9 +243,13 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
   }
 
   private end(entity: MovingEntity, lease: Lease | null): void {
-    this.idle.push(this.now);
-    this.setBusy(this.busy - 1);
     const failed = this.failureProbability > 0 && this.failureDraw.nextSample() < this.failureProbability;
+    if (!failed && this.hold) {
+      this.setBusy(this.busy, this.held + 1);
+      (entity.holds ??= []).push(() => this.release());
+    } else {
+      this.freeWorker();
+    }
     if (!failed) {
       this.succeeded++;
       if (lease !== null && !lease.ack()) this.staleAcks++;
@@ -215,11 +266,30 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     this.queueHasEntity();
   }
 
-  private setBusy(n: number): void {
+  private freeWorker(): void {
+    this.idle.push(this.now);
+    this.setBusy(this.busy - 1);
+  }
+
+  /** A Release freed a held worker: the response came back. */
+  private release(): void {
+    this.held--;
+    this.freeWorker();
+    this.queueHasEntity();
+  }
+
+  private setBusy(n: number, held = this.held): void {
     this.busy = n;
+    this.held = held;
     this.busyStat.set(this.now, n);
-    this.busyLifetime.set(this.now, n);
+    this.recordCpu();
     this.setState(n === 0 ? "Idle" : "Busy");
+  }
+
+  /** The Autoscaler's CPU proxy: a held worker is waiting for a response, and CPU use stops at the limit. */
+  private recordCpu(): void {
+    const computing = this.busy - this.held;
+    this.busyLifetime.set(this.now, this.cpuRatio > 1 ? Math.min(computing, this.available / this.cpuRatio) : computing);
   }
 
   override resetStatistics(): void {
@@ -227,6 +297,7 @@ export class WorkerPool extends LinkedComponent implements QueueWaiter, Scalable
     this.busyStat.reset(this.now);
     this.limitStat.reset(this.now);
     this.started = 0;
+    this.stretchTotal = 0;
     this.coldStarts = 0;
     this.succeeded = 0;
     this.failed = 0;

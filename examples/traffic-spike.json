@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json",
   "version": 1,
   "name": "Traffic spike: 50/s -> 250/s for 2 minutes",
   "description": "Capacity 100 workers x ~2/s each = ~200/s. The spike exceeds capacity, so the backlog grows for 120 s and then drains.",

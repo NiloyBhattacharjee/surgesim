@@ -9,6 +9,11 @@ export interface MovingEntity {
   readonly createdAt: number;
   /** Free-form attributes for later phases. */
   attributes: Record<string, unknown>;
+  /**
+   * Worker slots this entity holds (a WorkerPool with `holdUntilRelease`), one function per slot that frees it.
+   * A Release calls them. Copies (a Topic's) do not inherit them.
+   */
+  holds?: (() => void)[];
 }
 
 /** Services the model provides to every component. */

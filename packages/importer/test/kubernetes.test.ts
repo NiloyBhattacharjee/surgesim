@@ -341,14 +341,18 @@ services:
       "nope: unknown key (expected one of traffic, services)",
       "traffic.entry: must be a name or a non-empty list of names",
       "traffic: give ratePerSecond or rateProfile, not both",
-      "services.a.extra: unknown key (expected one of serviceTime, concurrencyPerPod, startupDelay, calls)",
+      "services.a.extra: unknown key (expected one of serviceTime, concurrencyPerPod, startupDelay, cpuPerRequest, rollingUpdateAt, calls)",
       "services.a.serviceTime: must be seconds (a number >= 0) or a distribution such as { dist: lognormal, mean: 0.04, stdDev: 0.015 }",
       "services.a.concurrencyPerPod: must be an integer >= 1",
       "services.a.startupDelay: must be a number >= 0",
       "services.b.calls[0].probability: must be a number in [0, 1]",
       "services.b.calls[1].service: must be a Service or Deployment name",
-      "services.b.calls[2]: must be { service, probability }",
+      "services.b.calls[2]: must be { service, probability, synchronous? }",
       "services.c: must be a mapping",
+    ]);
+    expect(overlayErrors("services: { a: { calls: [{ service: b, probability: 1, synchronous: yes, wait: 1 }] } }")).toEqual([
+      "services.a.calls[0].wait: unknown key (expected one of service, probability, synchronous)",
+      "services.a.calls[0].synchronous: must be true or false",
     ]);
     expect(overlayErrors("traffic: { rateProfile: [[0, -1]] }")[0]).toMatch(/rateProfile: must be a non-empty list/);
     expect(overlayErrors("- a\n- b\n")).toEqual(["the overlay must be a mapping with traffic and/or services"]);
@@ -409,6 +413,181 @@ services:
     expect(Math.abs(out(res, "orders-api.NumberSucceeded").mean! / served - 0.6)).toBeLessThan(0.018);
     expect(out(res, "mailer.NumberSucceeded").mean).toBe(out(res, "orders-api.NumberSucceeded").mean);
     expect(out(res, "completed.mean").mean!).toBeCloseTo(0.04 + 0.6 * 0.13, 2);
+  });
+
+  describe("synchronous calls", () => {
+    const text = `
+traffic: { entry: web, ratePerSecond: 20 }
+services:
+  web-frontend: { serviceTime: 0.04, calls: [{ service: orders-api, probability: 0.6, synchronous: true }] }
+  orders-api: { serviceTime: 0.12, calls: [{ service: mailer, probability: 1 }] }
+  mailer: { serviceTime: 0.01 }
+`;
+    const sync = imported(objects(), { ...overlay(text), concurrencyPerPod: 100, duration: 600, replications: 3, seed: 2 });
+
+    it("hold the caller's slot; completions and asynchronous calls go through a Release", () => {
+      expect(overlay(text).services!["web-frontend"]!.calls).toEqual([{ service: "orders-api", probability: 0.6, synchronous: true }]);
+      expect(comp(sync, "web-frontend")!.inputs).toMatchObject({ holdUntilRelease: true });
+      expect(comp(sync, "orders-api")!.inputs!["holdUntilRelease"]).toBeUndefined();
+      expect(comp(sync, "web-frontend-calls")!.links!["targets"]).toEqual(["orders-api-queue", "release"]);
+      expect(comp(sync, "orders-api-calls")!.links!["targets"]).toEqual(["mailer-release"]);
+      expect(comp(sync, "mailer-release")).toMatchObject({ type: "Release", links: { next: "mailer-queue" } });
+      expect(comp(sync, "mailer")!.links!["next"]).toBe("release");
+      expect(comp(sync, "release")).toMatchObject({ type: "Release", links: { next: "completed" } });
+      expect(sync.model.settings.timeSeries!.outputs).toContain("web-frontend.HeldWorkers");
+      expect(sync.warnings.join("\n")).toMatch(/Calls are asynchronous unless marked synchronous/);
+      expect(sync.warnings.join("\n")).toMatch(/Synchronous calls hold the caller's request slot/);
+      // asynchronous only: no Release, so existing models are unchanged
+      expect(r.model.components.some((c) => c.type === "Release")).toBe(false);
+    });
+
+    it("simulate: by Little's law the caller's busy slots are 20/s x (0.04 + 0.6 x 0.12) s; latency is unchanged", () => {
+      const res = simulate(sync);
+      // mailer is asynchronous, so web-frontend waits for orders-api's work only, not mailer's
+      expect(out(res, "web-frontend.AverageBusyWorkers").mean!).toBeCloseTo(20 * (0.04 + 0.6 * 0.12), 1);
+      expect(out(res, "completed.mean").mean!).toBeCloseTo(0.04 + 0.6 * 0.13, 2);
+    });
+  });
+
+  describe("CPU limits and requests (cpuPerRequest)", () => {
+    const podWith = (containers: object[], name = "api") => ({
+      kind: "Deployment",
+      metadata: { name },
+      spec: { replicas: 1, template: { metadata: { labels: { app: name } }, spec: { containers } } },
+    });
+    const pod = (resources: object) => podWith([{ name: "api", resources }]);
+    const cpuOptions = (cpuPerRequest?: number, extra: object = {}): KubernetesImportOptions => ({
+      ratePerSecond: 20,
+      serviceTime: 0.1,
+      concurrencyPerPod: 10,
+      services: { api: cpuPerRequest !== undefined ? { cpuPerRequest } : {} },
+      ...extra,
+    });
+
+    it("the overlay reads cpuPerRequest and rejects a non-positive one", () => {
+      expect(overlay("services: { web: { cpuPerRequest: 0.2 } }").services!["web"]).toEqual({ cpuPerRequest: 0.2 });
+      expect(overlayErrors("services: { web: { cpuPerRequest: 0 } }")).toEqual(["services.web.cpuPerRequest: must be a number >= 0.001"]);
+    });
+
+    it("the oversubscription is cpuPerRequest x slots per pod / the limit, reading millicores and summing containers", () => {
+      expect(comp(imported([pod({ limits: { cpu: "500m" } })], cpuOptions(0.2)), "api")!.inputs!["cpuOversubscription"]).toBeCloseTo(4, 9);
+      const two = podWith([{ resources: { limits: { cpu: "1.5" } } }, { resources: { limits: { cpu: 1 } } }]);
+      expect(comp(imported([two], cpuOptions(0.5)), "api")!.inputs!["cpuOversubscription"]).toBeCloseTo(2, 9);
+    });
+
+    it("no throttling when the limit is never reached, or is unknown, and it says so", () => {
+      expect(comp(imported([pod({ limits: { cpu: "4" } })], cpuOptions(0.2)), "api")!.inputs!["cpuOversubscription"]).toBeUndefined();
+      const noOverlay = imported([pod({ limits: { cpu: "1" } })], cpuOptions());
+      expect(comp(noOverlay, "api")!.inputs!["cpuOversubscription"]).toBeUndefined();
+      expect(noOverlay.warnings.join("\n")).toMatch(/CPU limit is ignored; set cpuPerRequest/);
+      const partial = imported([podWith([{ resources: { limits: { cpu: "100m" } } }, {}])], cpuOptions(0.2));
+      expect(comp(partial, "api")!.inputs!["cpuOversubscription"]).toBeUndefined();
+      expect(partial.warnings.join("\n")).toMatch(/not every container has a CPU limit/);
+    });
+
+    it("a too-low limit caps throughput at limit / (cpuPerRequest x service time) = 1 / (0.2 x 0.1) = 50/s", () => {
+      const run = (limit: string) => simulate(imported([pod({ limits: { cpu: limit } })], cpuOptions(0.2, { ratePerSecond: 80, duration: 300, replications: 2, seed: 4 })));
+      const low = run("1");
+      expect(Math.abs(out(low, "api.NumberSucceeded").mean! / 300 - 50)).toBeLessThan(1);
+      expect(out(low, "api.AverageCpuStretch").mean!).toBeGreaterThan(1.9);
+      expect(out(run("4"), "api.AverageCpuStretch").mean!).toBe(1); // 2 cores demanded at most
+      expect(imported([pod({ limits: { cpu: "1" } })], cpuOptions(0.2)).warnings.join("\n")).toMatch(/not 100 ms CFS periods/);
+    });
+
+    describe("the HPA works from CPU use against the request", () => {
+      const scaled = (resources: object, target = 50) => [pod(resources), hpa({ maxReplicas: 20, metrics: [{ type: "Resource", resource: { name: "cpu", target: { type: "Utilization", averageUtilization: target } } }] }, "api")];
+      const targetOf = (r: ReturnType<typeof imported>) => comp(r, "api-hpa")!.inputs!["targetUtilisation"];
+
+      it("target slots = target x request / (cpuPerRequest x slots per pod)", () => {
+        expect(targetOf(imported(scaled({ requests: { cpu: "250m" } }), cpuOptions(0.05)))).toBeCloseTo((0.5 * 0.25) / 0.5, 9);
+        expect(targetOf(imported(scaled({ requests: { cpu: "250m" } }), cpuOptions()))).toBe(0.5);
+        expect(targetOf(imported(scaled({}), cpuOptions(0.05)))).toBe(0.5); // no request: the slot proxy
+        expect(targetOf(imported(scaled({ limits: { cpu: "250m" } }), cpuOptions(0.05)))).toBeCloseTo(0.25, 9); // the request defaults to the limit
+      });
+
+      it("warns when the target cannot be reached, or cannot be represented", () => {
+        const never = imported(scaled({ requests: { cpu: "4" } }), cpuOptions(0.05));
+        expect(targetOf(never)).toBe(1);
+        expect(never.warnings.join("\n")).toMatch(/uses 12.5% of its CPU request, below the 50% target/);
+        const tiny = imported(scaled({ requests: { cpu: "10m" } }), cpuOptions(0.1));
+        expect(targetOf(tiny)).toBe(0.05);
+        expect(tiny.warnings.join("\n")).toMatch(/clamped to 5%/);
+      });
+
+      it("a memory target stays on the slot proxy", () => {
+        const memory = [pod({ requests: { cpu: "250m" } }), hpa({ metrics: [{ type: "Resource", resource: { name: "memory", target: { type: "Utilization", averageUtilization: 50 } } }] }, "api")];
+        expect(targetOf(imported(memory, cpuOptions(0.05)))).toBe(0.5);
+      });
+
+      it("simulates the HPA formula: 20/s x 0.1 s x 0.1 cores = 0.2 cores; at 0.1 cores per pod and a 50% target that is 4 pods", () => {
+        const run = (cpuPerRequest?: number) => simulate(imported(scaled({ requests: { cpu: "100m" } }), cpuOptions(cpuPerRequest, { concurrencyPerPod: 5, duration: 900, warmUp: 300, replications: 2, seed: 5 })));
+        const pods = out(run(0.1), "api.AverageConcurrency").mean! / 5;
+        expect(pods).toBeGreaterThanOrEqual(3.9);
+        expect(pods).toBeLessThan(7); // the HPA rounds up and holds its noisy peak for the 300 s window
+        expect(out(run(), "api.AverageConcurrency").mean! / 5).toBeLessThan(3); // on the proxy: 2 busy slots / 50% = 4 slots, 1 pod
+      });
+
+      it("a throttled pod's CPU use stops at its limit: 1 pod at limit = request and a 50% target asks for 1 x 100% / 50% = 2 pods", () => {
+        const objs = scaled({ requests: { cpu: "1" }, limits: { cpu: "1" } });
+        const at = (duration: number) => out(simulate(imported(objs, cpuOptions(0.5, { ratePerSecond: 1000, duration, replications: 1 }))), "api-hpa.DesiredConcurrency").mean;
+        expect(at(14)).toBe(10); // no decision before 15 s
+        expect(at(16)).toBe(20);
+      });
+    });
+  });
+
+  describe("rolling updates (rollingUpdateAt)", () => {
+    const withStrategy = (replicas: number, strategy?: object, extra: object = {}) => ({
+      kind: "Deployment",
+      metadata: { name: "api" },
+      spec: { replicas, ...(strategy ? { strategy } : {}), ...extra, template: { metadata: { labels: { app: "api" } }, spec: { containers: [{ readinessProbe: { initialDelaySeconds: 30 } }] } } },
+    });
+    const rolling = (replicas: number, strategy?: object, extra: object = {}, at = 100, options: object = {}) =>
+      imported([withStrategy(replicas, strategy, extra)], { concurrencyPerPod: 10, services: { api: { rollingUpdateAt: at } }, ...options });
+    const inputsOf = (r: ReturnType<typeof imported>) => comp(r, "api-rollout")!.inputs!;
+
+    it("the overlay reads rollingUpdateAt", () => {
+      expect(overlay("services: { web: { rollingUpdateAt: 300 } }").services!["web"]).toEqual({ rollingUpdateAt: 300 });
+      expect(overlayErrors("services: { web: { rollingUpdateAt: -1 } }")).toEqual(["services.web.rollingUpdateAt: must be a number >= 0"]);
+    });
+
+    it("defaults to Kubernetes' 25% / 25%, with the readiness delay and pod size", () => {
+      expect(comp(rolling(4), "api-rollout")).toMatchObject({
+        type: "RollingUpdate",
+        inputs: { at: 100, readinessDelay: 30, podSize: 10, maxSurgeFraction: 0.25, maxUnavailableFraction: 0.25 },
+        links: { target: "api" },
+      });
+    });
+
+    it("reads counts and percentages, Recreate and minReadySeconds", () => {
+      expect(inputsOf(rolling(4, { rollingUpdate: { maxSurge: 2, maxUnavailable: "50%" } }))).toMatchObject({ maxSurge: 2, maxUnavailableFraction: 0.5 });
+      expect(inputsOf(rolling(4, { rollingUpdate: { maxUnavailable: 0 } }))).toMatchObject({ maxSurgeFraction: 0.25, maxUnavailable: 0 });
+      expect(inputsOf(rolling(4, { type: "Recreate" }))).toMatchObject({ maxSurge: 0, maxUnavailableFraction: 1 });
+      expect(inputsOf(rolling(4, undefined, { minReadySeconds: 15 }))).toMatchObject({ readinessDelay: 45 });
+    });
+
+    it("warns about a bad strategy value and an update after the run, and adds no component without rollingUpdateAt", () => {
+      const bad = rolling(4, { rollingUpdate: { maxSurge: "lots" } });
+      expect(inputsOf(bad)).toMatchObject({ maxSurgeFraction: 0.25 });
+      expect(bad.warnings.join("\n")).toMatch(/not a count or a percentage/);
+      expect(rolling(4, undefined, {}, 600).warnings.join("\n")).toMatch(/so the update never starts/);
+      expect(r.model.components.some((c) => c.type === "RollingUpdate")).toBe(false);
+    });
+
+    it("simulates: at 25% of 4 pods the deploy takes two readiness delays, and 3 pods serve throughout", () => {
+      const res = simulate(rolling(4, undefined, {}, 100, { ratePerSecond: 1, serviceTime: 0.01, duration: 300, replications: 1 }));
+      expect(out(res, "api-rollout.RolloutSeconds").mean).toBe(60);
+      expect(out(res, "api-rollout.PodsReplaced").mean).toBe(4);
+      expect(out(res, "api.AverageConcurrency").mean!).toBeCloseTo(40 - (10 * 60) / 300, 9);
+    });
+
+    it("under load, a deploy with no spare capacity builds a backlog that maxUnavailable: 0 avoids", () => {
+      // 3 pods x 10 slots at 0.1 s serve 300/s; 270/s leaves 90% busy. One pod out is 200/s, below the traffic.
+      const load = { ratePerSecond: 270, serviceTime: 0.1, duration: 400, replications: 3, seed: 6 };
+      const backlog = (rollingUpdate: object) => out(simulate(rolling(3, { rollingUpdate }, {}, 100, load)), "api-queue.MaxQueueLength").mean!;
+      expect(backlog({ maxSurge: 0, maxUnavailable: 1 })).toBeGreaterThan(70 * 60); // (270 - 200)/s through the 90 s deploy
+      expect(backlog({ maxSurge: 1, maxUnavailable: 0 })).toBeLessThan(200);
+    });
   });
 
   it("rejects overlays that do not fit the manifests, with every problem listed", () => {

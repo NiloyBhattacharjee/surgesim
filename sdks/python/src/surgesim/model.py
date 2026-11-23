@@ -195,6 +195,20 @@ class Model:
         matching ``probabilities`` entry (they must add up to 1)."""
         return self._make("Branch", name, props)
 
+    def release(self, name: str, **props: Any) -> Component:
+        """Frees the worker slots an entity holds (``worker_pool(..., hold_until_release=True)``), then passes it
+        to ``next``."""
+        return self._make("Release", name, props)
+
+    def rolling_update(self, name: str, **props: Any) -> Component:
+        """Replaces a WorkerPool's pods once, at time ``at``, within ``max_surge`` and ``max_unavailable`` (a
+        Kubernetes rollout)."""
+        return self._make("RollingUpdate", name, props)
+
+    def cost_total(self, name: str, **props: Any) -> Component:
+        """Adds up the Cost of the WorkerPools and MessageQueues in ``sources=[...]``: one output for a whole budget."""
+        return self._make("CostTotal", name, props)
+
     def custom(self, type: str, name: str, inputs: Optional[Dict[str, Any]] = None, links: Optional[Dict[str, Component]] = None) -> Component:  # noqa: A002
         """Add a component of any type, including ones from a custom engine registry."""
         if name in self._components:

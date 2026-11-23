@@ -190,6 +190,276 @@ describe("WorkerPool without a queue is an M/M/c/c loss system (Erlang-B)", () =
   });
 });
 
+describe("WorkerPool holdUntilRelease and Release: synchronous calls", () => {
+  /** Arrivals at t=0 and t=1.5 to "a" (1 worker, 1 s, holds), which calls "b" (1 worker, 2 s). */
+  const callModel = (aNext: string, bNext: string, extra: Comp[] = []) =>
+    model([
+      gen("gen", "a", { interArrivalTime: 1.5, firstArrivalTime: 0, maxNumber: 2 }),
+      { type: "WorkerPool", name: "a", inputs: { concurrency: 1, serviceTime: 1, holdUntilRelease: true }, links: { next: aNext } },
+      { type: "WorkerPool", name: "b", inputs: { concurrency: 1, serviceTime: 2 }, links: { next: bNext } },
+      { type: "Release", name: "rel", links: { next: "sink" } },
+      sink("sink"),
+      ...extra,
+    ]);
+
+  it("the caller's worker stays busy until the response is released (hand timeline)", () => {
+    // a serves [0,1), then waits for b on [1,3): the t=1.5 arrival finds a's only worker held and is throttled.
+    const r = run(callModel("b", "rel"));
+    expect(val(r, "a.NumberThrottled")).toBe(1);
+    expect(val(r, "a.HeldWorkers")).toBe(0);
+    expect(val(r, "a.AverageBusyWorkers")).toBeCloseTo(3 / 20, 9);
+    expect(val(r, "rel.NumberReleased")).toBe(1);
+    expect(val(r, "sink.count")).toBe(1);
+    expect(val(r, "sink.mean")).toBe(3);
+  });
+
+  it("a Release before the downstream call makes it asynchronous (hand timeline)", () => {
+    // a is freed at t=1, so the t=1.5 arrival is served; b serves the first on [1,3) and the second on [3,5).
+    const r = run(callModel("relB", "sink", [{ type: "Release", name: "relB", links: { next: "b" } }]));
+    expect(val(r, "a.NumberThrottled")).toBe(0);
+    expect(val(r, "b.NumberThrottled")).toBe(1);
+    expect(val(r, "relB.NumberReleased")).toBe(2);
+  });
+
+  it("a validation error names Release.next when it points at something that is not a receiver", () => {
+    expect(errorsOf([{ type: "Release", name: "rel", links: { next: "auto" } }, { type: "Autoscaler", name: "auto", inputs: { maxConcurrency: 2 }, links: { target: "rel" } }]).map((e) => e.key)).toContain("next");
+  });
+
+  it("the Autoscaler does not count held workers as busy (waiting uses no CPU)", () => {
+    // a computes for 0.01 s per request then waits 5 s on b: its slots are nearly all held, almost never computing.
+    const r = run(
+      model(
+        [
+          gen("gen", "q", { interArrivalTime: { dist: "exponential", mean: 1 } }),
+          { type: "Queue", name: "q" },
+          { type: "WorkerPool", name: "a", inputs: { concurrency: 2, serviceTime: 0.01, holdUntilRelease: true }, links: { queue: "q", next: "b" } },
+          { type: "WorkerPool", name: "b", inputs: { concurrency: 100, serviceTime: 5 }, links: { next: "rel" } },
+          { type: "Release", name: "rel", links: { next: "sink" } },
+          { type: "Autoscaler", name: "hpa", inputs: { targetUtilisation: 0.5, evaluationInterval: 10, minConcurrency: 2, maxConcurrency: 50 }, links: { target: "a" } },
+          sink("sink"),
+        ],
+        { duration: 300, seed: 3 },
+      ),
+    );
+    expect(val(r, "a.Utilisation")).toBeGreaterThan(0.95);
+    expect(val(r, "hpa.ScaleOuts")).toBe(0);
+    expect(val(r, "q.MaxQueueLength")).toBeGreaterThan(50);
+  });
+
+  // A holding pool without a queue that calls an uncongested pool is an M/G/c/c loss system whose service time is
+  // its own plus the callee's. Erlang-B is insensitive to the service distribution, so it still applies.
+  describe("a synchronous caller without a queue follows Erlang-B with service time sA + sB", () => {
+    const lambda = 4;
+    const c = 5;
+    const a = lambda * (0.5 + 0.5);
+    const B = erlangB(a, c);
+    const r = run(
+      model(
+        [
+          gen("gen", "a", { interArrivalTime: { dist: "exponential", mean: 1 / lambda } }),
+          { type: "WorkerPool", name: "a", inputs: { concurrency: c, serviceTime: { dist: "exponential", mean: 0.5 }, holdUntilRelease: true }, links: { next: "b" } },
+          { type: "WorkerPool", name: "b", inputs: { concurrency: 1000, serviceTime: { dist: "exponential", mean: 0.5 } }, links: { next: "rel" } },
+          { type: "Release", name: "rel", links: { next: "sink" } },
+          sink("sink"),
+        ],
+        { duration: 20_000, warmUp: 2_000, replications: 20, seed: 4243 },
+      ),
+    );
+
+    it("the 95% CI of the caller's blocking fraction contains Erlang-B (c=5, a=4)", () => {
+      const o = out(r, "a.ThrottleFraction");
+      expect(o.ci95!.low).toBeLessThanOrEqual(B);
+      expect(o.ci95!.high).toBeGreaterThanOrEqual(B);
+      expect(val(r, "b.NumberThrottled")).toBe(0);
+    });
+
+    it("the 95% CI of the caller's utilisation, held workers included, contains a(1-B)/c", () => {
+      const o = out(r, "a.Utilisation");
+      const theory = (a * (1 - B)) / c;
+      expect(o.ci95!.low).toBeLessThanOrEqual(theory);
+      expect(o.ci95!.high).toBeGreaterThanOrEqual(theory);
+    });
+  });
+});
+
+describe("WorkerPool cpuOversubscription: CPU throttling", () => {
+  const pool = (inputs: object, rate: number, settings: object) =>
+    run(
+      model(
+        [
+          gen("gen", "q", { interArrivalTime: { dist: "exponential", mean: 1 / rate } }),
+          { type: "Queue", name: "q" },
+          { type: "WorkerPool", name: "p", inputs, links: { queue: "q", next: "sink" } },
+          sink("sink"),
+        ],
+        settings,
+      ),
+    );
+
+  it("stretches service by computing workers / concurrency x ratio (hand timeline)", () => {
+    // 2 workers, ratio 4, 1 s service. t=0: 1 of 2 computing, stretch 2. t=0.5: 2 of 2, stretch 4.
+    const r = run(
+      model([
+        gen("gen", "p", { interArrivalTime: 0.5, firstArrivalTime: 0, maxNumber: 2 }),
+        { type: "WorkerPool", name: "p", inputs: { concurrency: 2, serviceTime: 1, cpuOversubscription: 4 }, links: { next: "sink" } },
+        sink("sink"),
+      ]),
+    );
+    expect(val(r, "sink.mean")).toBeCloseTo((2 + 4) / 2, 9);
+    expect(val(r, "p.AverageCpuStretch")).toBeCloseTo(3, 9);
+  });
+
+  it("at 1 it changes nothing", () => {
+    const settings = { duration: 200, seed: 7 };
+    const base = pool({ concurrency: 3, serviceTime: { dist: "exponential", mean: 0.2 } }, 10, settings);
+    const one = pool({ concurrency: 3, serviceTime: { dist: "exponential", mean: 0.2 }, cpuOversubscription: 1 }, 10, settings);
+    expect(val(one, "sink.mean")).toBe(val(base, "sink.mean"));
+    expect(val(one, "p.AverageCpuStretch")).toBe(1);
+  });
+
+  it("saturated throughput = concurrency / (service x ratio): 10 / (1 x 4) = 2.5/s", () => {
+    const r = pool({ concurrency: 10, serviceTime: 1, cpuOversubscription: 4 }, 50, { duration: 2000, warmUp: 100, seed: 3 });
+    expect(val(r, "p.NumberSucceeded")! / 1900).toBeCloseTo(2.5, 1);
+    expect(val(r, "p.AverageCpuStretch")).toBeCloseTo(4, 2);
+  });
+
+  // One request alone uses the whole limit (ratio = slots), so each is stretched by everything already running. The mean
+  // is M/M/1 processor sharing's, E[T] = E[S] / (1 - rho): E[T] = E[S](1 + E[N]) by PASTA, with S independent of N, and
+  // E[N] = lambda E[T] by Little.
+  describe("with ratio = slots it has the M/M/1-PS mean, E[T] = E[S] / (1 - rho)", () => {
+    for (const rho of [0.5, 0.7]) {
+      it(`rho = ${rho}`, () => {
+        const r = pool({ concurrency: 500, serviceTime: { dist: "exponential", mean: 0.1 }, cpuOversubscription: 500 }, rho / 0.1, { duration: 20000, warmUp: 500, seed: 11, replications: 5 });
+        const expected = 0.1 / (1 - rho);
+        expect(Math.abs(val(r, "sink.mean")! - expected) / expected).toBeLessThan(0.03);
+      });
+    }
+  });
+
+  it("the Autoscaler sees CPU use capped at the limit: busy / ratio / target, not busy / target", () => {
+    const saturated = (ratio: number) =>
+      run(
+        model(
+          [
+            gen("gen", "q", { interArrivalTime: 0.01 }),
+            { type: "Queue", name: "q" },
+            { type: "WorkerPool", name: "p", inputs: { concurrency: 40, serviceTime: 1, cpuOversubscription: ratio }, links: { queue: "q", next: "sink" } },
+            { type: "Autoscaler", name: "hpa", inputs: { targetUtilisation: 0.5, evaluationInterval: 10, minConcurrency: 1, maxConcurrency: 400 }, links: { target: "p" } },
+            sink("sink"),
+          ],
+          { duration: 15, seed: 1 },
+        ),
+      );
+    // Arrivals fill the pool at 100/s, so over the first 10 s the mean busy is 40 less the ramp (40 x 0.4 / 2 / 10 = 0.8).
+    expect(val(saturated(1), "hpa.DesiredConcurrency")).toBe(79); // ceil(39.2 / 0.5)
+    // CPU stops at 40 / 4 = 10 workers' worth, reached after 0.1 s: ceil(9.95 / 0.5). Uncapped, this would also be 79.
+    expect(val(saturated(4), "hpa.DesiredConcurrency")).toBe(20);
+  });
+});
+
+describe("RollingUpdate: replacing pods within maxSurge and maxUnavailable", () => {
+  /** A pool of `pods` idle pods, and an update starting at t=10. Capacity is read from AverageConcurrency over 200 s. */
+  const rollout = (pods: number, inputs: object, extra: Comp[] = [], podSize = 1) =>
+    run(
+      model(
+        [
+          { type: "WorkerPool", name: "p", inputs: { concurrency: pods * podSize, serviceTime: 1 } },
+          { type: "RollingUpdate", name: "r", inputs: { at: 10, readinessDelay: 30, podSize, ...inputs }, links: { target: "p" } },
+          ...extra,
+        ],
+        { duration: 200 },
+      ),
+    );
+  /** Mean capacity over 200 s: pods for the whole run, less the pod-seconds lost during the update. */
+  const capacity = (pods: number, lostPodSeconds: number) => pods - lostPodSeconds / 200;
+
+  // Worked through Kubernetes' ReconcileNewReplicaSet / reconcileOldReplicaSets, one batch per readinessDelay (30 s):
+  const cases: [string, number, object, number, number][] = [
+    // surge 1, unavailable 1: 3 serving (of 4) until the last batch is ready; 2 batches
+    ["maxSurge 1, maxUnavailable 1", 4, { maxSurge: 1, maxUnavailable: 1 }, 60, 1 * 60],
+    // surge 0, unavailable 1: one at a time, always 3 serving; 4 batches
+    ["maxSurge 0, maxUnavailable 1", 4, { maxUnavailable: 1 }, 120, 1 * 120],
+    // surge 1, unavailable 0: never below 4; each old pod goes as a new one is ready; 4 batches
+    ["maxSurge 1, maxUnavailable 0", 4, { maxSurge: 1 }, 120, 0],
+    // Recreate: all gone at once, all back after one batch
+    ["Recreate (maxUnavailableFraction 1)", 4, { maxUnavailableFraction: 1 }, 30, 4 * 30],
+    // the 25% defaults on 4 pods are the first case
+    ["25% / 25% on 4 pods", 4, { maxSurgeFraction: 0.25, maxUnavailableFraction: 0.25 }, 60, 1 * 60],
+    // on 2 pods surge rounds up to 1 and unavailable down to 0
+    ["25% / 25% on 2 pods", 2, { maxSurgeFraction: 0.25, maxUnavailableFraction: 0.25 }, 60, 0],
+    // 0 and 0 still makes progress: Kubernetes sets maxUnavailable to 1
+    ["both limits resolving to 0", 3, { maxUnavailableFraction: 0.1 }, 90, 1 * 90],
+  ];
+  for (const [label, pods, inputs, seconds, lost] of cases) {
+    it(`${label}: takes ${seconds} s and loses ${lost} pod-seconds of capacity (hand timeline)`, () => {
+      const r = rollout(pods, inputs);
+      expect(val(r, "r.RolloutSeconds")).toBe(seconds);
+      expect(val(r, "r.PodsReplaced")).toBe(pods);
+      expect(val(r, "p.AverageConcurrency")).toBeCloseTo(capacity(pods, lost), 9);
+      expect(val(r, "p.Concurrency")).toBe(pods);
+    });
+  }
+
+  it("works in whole pods of podSize workers", () => {
+    const r = rollout(4, { maxSurge: 1, maxUnavailable: 1 }, [], 10);
+    expect(val(r, "r.RolloutSeconds")).toBe(60);
+    expect(val(r, "p.AverageConcurrency")).toBeCloseTo(10 * capacity(4, 60), 9);
+  });
+
+  it("a removed pod finishes its running work, and requests wait while nothing can serve (Recreate timeline)", () => {
+    // 1 pod, busy on [0, 15). Recreate at 10 removes it but its request finishes at 15. The arrival at 12 waits for the
+    // new pod, ready at 40, and is done at 55.
+    const r = run(
+      model(
+        [
+          gen("gen", "q", { interArrivalTime: 12, firstArrivalTime: 0, maxNumber: 2 }),
+          { type: "Queue", name: "q" },
+          { type: "WorkerPool", name: "p", inputs: { concurrency: 1, serviceTime: 15 }, links: { queue: "q", next: "sink" } },
+          { type: "RollingUpdate", name: "r", inputs: { at: 10, readinessDelay: 30, maxUnavailableFraction: 1 }, links: { target: "p" } },
+          sink("sink"),
+        ],
+        { duration: 100 },
+      ),
+    );
+    expect(val(r, "sink.count")).toBe(2);
+    expect(val(r, "sink.mean")).toBeCloseTo((15 + (55 - 12)) / 2, 9);
+  });
+
+  it("the update has no effect before it starts, and reports no duration until it finishes", () => {
+    const early = run(model([{ type: "WorkerPool", name: "p", inputs: { concurrency: 4, serviceTime: 1 } }, { type: "RollingUpdate", name: "r", inputs: { at: 90, readinessDelay: 30, maxSurge: 1 }, links: { target: "p" } }], { duration: 100 }));
+    expect(val(early, "p.AverageConcurrency")).toBe(4);
+    expect(val(early, "r.RolloutSeconds")).toBeNull();
+    expect(val(early, "r.PodsReplaced")).toBe(0);
+  });
+
+  it("an Autoscaler keeps working from the pool's nominal size: the update does not read as a reason to scale", () => {
+    // 20/s x 0.1 s = 2 busy workers, and at a 0.5 target that is 4 workers, however many are unavailable.
+    const autoscaled = (extra: Comp[]) =>
+      run(
+        model(
+          [
+            gen("gen", "q", { interArrivalTime: 0.05 }),
+            { type: "Queue", name: "q" },
+            { type: "WorkerPool", name: "p", inputs: { concurrency: 4, serviceTime: 0.1 }, links: { queue: "q", next: "sink" } },
+            { type: "Autoscaler", name: "a", inputs: { targetUtilisation: 0.5, evaluationInterval: 15, minConcurrency: 1, maxConcurrency: 8, scaleDownStabilisation: 300 }, links: { target: "p" } },
+            sink("sink"),
+            ...extra,
+          ],
+          { duration: 200 },
+        ),
+      );
+    const r = autoscaled([{ type: "RollingUpdate", name: "r", inputs: { at: 50, readinessDelay: 10, maxSurge: 1, maxUnavailable: 1 }, links: { target: "p" } }]);
+    expect(val(r, "a.ScaleOuts")).toBe(val(autoscaled([]), "a.ScaleOuts"));
+    expect(val(r, "p.Concurrency")).toBe(4);
+    expect(val(r, "r.PodsReplaced")).toBe(4);
+  });
+
+  it("a validation error names target when it is not a pool", () => {
+    expect(errorsOf([{ type: "RollingUpdate", name: "r", inputs: { at: 1 }, links: { target: "s" } }, sink("s")]).map((e) => e.key)).toContain("target");
+    expect(errorsOf([{ type: "RollingUpdate", name: "r", links: {} }]).map((e) => e.key)).toEqual(expect.arrayContaining(["at", "target"]));
+  });
+});
+
 describe("RetryPolicy: exponential backoff", () => {
   /** A blocker occupies the single worker; "gen" requests go through the RetryPolicy. */
   const retryModel = (retryInputs: object, poolService: number, requests: object = { interArrivalTime: 1, maxNumber: 1 }, duration = 50) =>
@@ -452,5 +722,39 @@ describe("cloud components: composition, determinism and validation", () => {
     );
     expect(val(r, "sink.count")).toBe(4); // arrivals 0..3, serial service of 3 s each finishes by t=12 < 20
     expect(val(r, "pool.NumberSucceeded")).toBe(4);
+  });
+});
+
+describe("CostTotal: one output for a whole budget", () => {
+  const costed = (settings?: object) =>
+    model(
+      [
+        gen("gen", "mq", { interArrivalTime: 1, maxNumber: 10 }),
+        { type: "MessageQueue", name: "mq", inputs: { costPerMillionRequests: 1_000_000 } },
+        { type: "WorkerPool", name: "pool", inputs: { concurrency: 1, serviceTime: 2, costPerRequest: 100, costPerBusySecond: 10 }, links: { queue: "mq", next: "sink" } },
+        sink("sink"),
+        { type: "CostTotal", name: "total", links: { sources: ["mq", "pool"] } },
+      ],
+      settings,
+    );
+
+  it("adds up its sources' Cost (hand total)", () => {
+    // 10 messages, one worker, 2 s each: the last finishes at t=20 (duration 40).
+    // pool: 10 x 100 + 20 busy s x 10 = 1200; mq: 10 sends + 10 receives + 10 deletes at 1 each = 30.
+    const r = run(costed({ duration: 40 }));
+    expect(val(r, "pool.Cost")).toBeCloseTo(1200, 6);
+    expect(val(r, "mq.Cost")).toBeCloseTo(30, 6);
+    expect(val(r, "total.Cost")).toBeCloseTo(1230, 6);
+  });
+
+  it("follows the warm-up window of its sources", () => {
+    const r = run(costed({ duration: 40, warmUp: 9 }));
+    expect(val(r, "total.Cost")).toBeLessThan(1230);
+    expect(val(r, "total.Cost")).toBeCloseTo(val(r, "pool.Cost")! + val(r, "mq.Cost")!, 6);
+  });
+
+  it("only links to components with a Cost", () => {
+    const errors = errorsOf([sink("s"), { type: "CostTotal", name: "total", links: { sources: ["s"] } }]);
+    expect(errors).toEqual([expect.objectContaining({ component: "total", key: "sources" })]);
   });
 });

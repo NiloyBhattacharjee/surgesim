@@ -38,11 +38,11 @@ export const SPECS = {
   WorkerPool: {
     inputs: [
       "concurrency", "serviceTime", "coldStartTime", "idleTimeout", "initialWarm", "failureProbability",
-      "costPerBusySecond", "costPerProvisionedSecond", "costPerRequest",
+      "costPerBusySecond", "costPerProvisionedSecond", "costPerRequest", "holdUntilRelease", "cpuOversubscription",
     ],
     links: ["queue", "next", "onFailure", "onThrottle"],
     outputs: [
-      "Utilisation", "Concurrency", "AverageConcurrency", "AverageBusyWorkers", "BusyWorkers", "ColdStarts",
+      "Utilisation", "Concurrency", "AverageConcurrency", "AverageBusyWorkers", "BusyWorkers", "HeldWorkers", "AverageCpuStretch", "ColdStarts",
       "NumberSucceeded", "NumberFailed", "NumberThrottled", "ThrottleFraction", "Cost", "StaleAcks",
     ],
   },
@@ -70,6 +70,21 @@ export const SPECS = {
     inputs: ["probabilities"],
     links: ["targets"],
     outputs: ["NumberRouted"],
+  },
+  Release: {
+    inputs: [],
+    links: ["next"],
+    outputs: ["NumberReleased"],
+  },
+  RollingUpdate: {
+    inputs: ["at", "readinessDelay", "podSize", "maxSurge", "maxSurgeFraction", "maxUnavailable", "maxUnavailableFraction"],
+    links: ["target"],
+    outputs: ["PodsReplaced", "RolloutSeconds"],
+  },
+  CostTotal: {
+    inputs: [],
+    links: ["sources"],
+    outputs: ["Cost"],
   },
 } as const;
 
@@ -132,6 +147,10 @@ export interface WorkerPoolProps extends Common {
   costPerBusySecond?: number;
   costPerProvisionedSecond?: number;
   costPerRequest?: number;
+  /** Keep the worker busy after service until the entity passes a Release (a synchronous call). */
+  holdUntilRelease?: boolean;
+  /** CPU the pool would use with every worker computing, as a multiple of its CPU limit; above 1 service stretches. */
+  cpuOversubscription?: number;
   /** Pull from this Queue or MessageQueue. Omit to accept pushed entities (and throttle when full). */
   queue?: Ref;
   next?: Ref;
@@ -186,4 +205,33 @@ export interface BranchProps extends Common {
   targets: Ref[];
   /** One probability per target, adding up to 1. */
   probabilities: number[];
+}
+
+export interface ReleaseProps extends Common {
+  /** Where entities go once the worker slots they hold are freed. */
+  next?: Ref;
+}
+
+export interface CostTotalProps extends Common {
+  /** WorkerPools and MessageQueues whose Cost is added up. */
+  sources: Ref[];
+}
+
+export interface RollingUpdateProps extends Common {
+  /** Seconds into the run at which the update starts. */
+  at: number;
+  /** Seconds from a new pod being created to it taking work. */
+  readinessDelay?: number;
+  /** Workers per pod. */
+  podSize?: number;
+  /** Pods allowed above the desired count. */
+  maxSurge?: number;
+  /** Added to maxSurge: this share of the pods at the start, rounded up. */
+  maxSurgeFraction?: number;
+  /** Pods allowed below the desired count. */
+  maxUnavailable?: number;
+  /** Added to maxUnavailable: this share of the pods at the start, rounded down. */
+  maxUnavailableFraction?: number;
+  /** The WorkerPool to update. */
+  target: Ref;
 }

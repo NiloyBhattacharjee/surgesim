@@ -36,11 +36,11 @@ SPECS = {
     "WorkerPool": {
         "inputs": [
             "concurrency", "serviceTime", "coldStartTime", "idleTimeout", "initialWarm", "failureProbability",
-            "costPerBusySecond", "costPerProvisionedSecond", "costPerRequest",
+            "costPerBusySecond", "costPerProvisionedSecond", "costPerRequest", "holdUntilRelease", "cpuOversubscription",
         ],
         "links": ["queue", "next", "onFailure", "onThrottle"],
         "outputs": [
-            "Utilisation", "Concurrency", "AverageConcurrency", "AverageBusyWorkers", "BusyWorkers", "ColdStarts",
+            "Utilisation", "Concurrency", "AverageConcurrency", "AverageBusyWorkers", "BusyWorkers", "HeldWorkers", "AverageCpuStretch", "ColdStarts",
             "NumberSucceeded", "NumberFailed", "NumberThrottled", "ThrottleFraction", "Cost", "StaleAcks",
         ],
     },
@@ -68,5 +68,20 @@ SPECS = {
         "inputs": ["probabilities"],
         "links": ["targets"],
         "outputs": ["NumberRouted"],
+    },
+    "Release": {
+        "inputs": [],
+        "links": ["next"],
+        "outputs": ["NumberReleased"],
+    },
+    "RollingUpdate": {
+        "inputs": ["at", "readinessDelay", "podSize", "maxSurge", "maxSurgeFraction", "maxUnavailable", "maxUnavailableFraction"],
+        "links": ["target"],
+        "outputs": ["PodsReplaced", "RolloutSeconds"],
+    },
+    "CostTotal": {
+        "inputs": [],
+        "links": ["sources"],
+        "outputs": ["Cost"],
     },
 }

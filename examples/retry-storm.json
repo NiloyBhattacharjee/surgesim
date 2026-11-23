@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json",
   "version": 1,
   "name": "Retry storm: a flaky dependency amplifies its own load",
   "description": "Offered load is 18/s against 10 workers at 0.5 s each (90% utilisation), and the dependency fails 30% of calls. Failures and throttled calls are retried immediately, so the effective load exceeds capacity and the system overloads: see retry.RetryAmplification (about 2.6) and pool.NumberThrottled. Jittered backoff only delays this (it does not fix a capacity shortfall); raising concurrency to 16 cuts amplification to about 1.7.",

@@ -9,7 +9,10 @@ import {
   type OutputOf,
   type QueueProps,
   type RateLimiterProps,
+  type ReleaseProps,
   type RetryPolicyProps,
+  type RollingUpdateProps,
+  type CostTotalProps,
   type ServerProps,
   type TopicProps,
   type WorkerPoolProps,
@@ -153,6 +156,21 @@ export class Model {
   /** Probabilistic router: sends each entity to one target, chosen with the given probabilities. */
   branch(name: string, props: BranchProps): Component<OutputOf<"Branch">> {
     return this.make("Branch", name, props);
+  }
+
+  /** Frees the worker slots an entity holds (WorkerPool `holdUntilRelease`), then passes it to `next`. */
+  release(name: string, props: ReleaseProps = {}): Component<OutputOf<"Release">> {
+    return this.make("Release", name, props);
+  }
+
+  /** Replaces a WorkerPool's pods once, at time `at`, within maxSurge and maxUnavailable (a Kubernetes rollout). */
+  rollingUpdate(name: string, props: RollingUpdateProps): Component<OutputOf<"RollingUpdate">> {
+    return this.make("RollingUpdate", name, props);
+  }
+
+  /** Adds up the Cost of its `sources` (WorkerPools, MessageQueues): one output for a whole budget. */
+  costTotal(name: string, props: CostTotalProps): Component<OutputOf<"CostTotal">> {
+    return this.make("CostTotal", name, props);
   }
 
   /**

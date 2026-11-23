@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json",
   "version": 1,
   "name": "Month-long instance comparison: t",
   "description": "A burstable fleet approximated as cheaper but slower: baseline CPU gives a 0.5 s service time on 8 workers, at 60% of the price. t3 CPU credits are not modelled; this is the credit-exhausted case.",

@@ -49,9 +49,10 @@ and easy to get wrong in production.
 | Capacity gates | Fail a pull request if p99 under load passes 2 s | `--assert`, exit code 3 |
 | Reviewing infrastructure changes | Does this CDK change alter capacity? | `surgesim import` before and after, then `compare` |
 | Kubernetes HPA tuning | Does the HPA keep up with a spike, given a 30 s readiness delay? Is `minReplicas: 2` enough? | `surgesim import manifests.yaml --overlay overlay.yaml`: pods and backlog over time, p99 |
+| Kubernetes deploys | Is there enough capacity to roll out during peak traffic? Which `maxUnavailable`? | `rollingUpdateAt` in the [overlay](docs/importing.md#rolling-updates): backlog and p99 for each strategy |
 
 **Not a good fit:** anything it does not model (databases, caches, network hops, load balancers, DynamoDB throttling,
-batching, FIFO queues, multi-region, Kubernetes memory limits, nodes and rolling updates), questions about why your code is slow (service time is an *input*), correlated
+batching, FIFO queues, multi-region, Kubernetes memory limits and nodes), questions about why your code is slow (service time is an *input*), correlated
 failures such as a bad deploy, very low-traffic systems where capacity is not the problem, and any case where you have
 no data and would be inventing the traffic and timings.
 
@@ -98,6 +99,7 @@ surgesim fit <data.csv> [--column NAME] [--scale K]           fit a distribution
 surgesim fit-arrivals <timestamps.csv> --window S             fit an arrival rate profile from request timestamps
 surgesim calibrate <model> --observed observed.json           compare a model with what the real system measured
 surgesim schema                                               component schemas as JSON
+surgesim schema --json-schema                                 the model format as a JSON Schema, for editors
 surgesim mcp                                                  serve the tools below to AI agents over MCP
 ```
 
@@ -176,15 +178,19 @@ in TypeScript.
 | `EntityGenerator` | arrivals: fixed or random inter-arrival times, or a time-varying Poisson rate profile, optionally bursty (`dispersionIndex`) |
 | `Queue`, `Server`, `EntitySink` | FIFO queue with optional capacity, parallel workers, and the end of the line (latency percentiles) |
 | `MessageQueue` | SQS-style visibility timeout, redelivery, `maxReceiveCount`, dead-letter queue |
-| `WorkerPool` | concurrency limit, cold starts, idle reclaim, throttling, failures, per-second/per-request pricing |
+| `WorkerPool` | concurrency limit, cold starts, idle reclaim, throttling, failures, CPU limits, per-second/per-request pricing |
 | `RetryPolicy` | exponential backoff with `none` / `full` / `equal` jitter, `maxDelay`, give-up routing |
 | `RateLimiter` | token bucket |
 | `Autoscaler` | target-tracking scaling with provisioning delay, scale-in cooldown or HPA-style stabilisation window, and whole-pod steps |
 | `Topic` | SNS-style fan-out: a copy of each message to every subscriber, with per-subscription filter probabilities |
 | `Branch` | probabilistic routing: each entity goes to one target (e.g. 60% of requests call a downstream service) |
+| `Release` | the response to a synchronous call: frees the `WorkerPool` slots (`holdUntilRelease`) that were waiting on the request |
+| `RollingUpdate` | replaces a `WorkerPool`'s pods once, within `maxSurge` and `maxUnavailable`, like a Kubernetes rollout |
+| `CostTotal` | adds up the `Cost` of several `WorkerPool`s and `MessageQueue`s, so one output and one assertion cover a whole budget (money, or tokens) |
 
 Every input, link and output is documented in [docs/model-format.md](docs/model-format.md), and `surgesim schema`
-prints the machine-readable form.
+prints the machine-readable form. For autocomplete, hover docs and inline errors while you write a model, point its
+`"$schema"` at the JSON Schema, as the examples do (see [editor support](docs/model-format.md#editor-support)).
 
 ## Examples
 
@@ -202,6 +208,7 @@ prints the machine-readable form.
 | [`examples/bounded-queue-overload.json`](examples/bounded-queue-overload.json) | M/M/2/50 under permanent overload: the bounded queue drops excess arrivals and latency stays capped near 12 s |
 | [`examples/two-stage-pipeline.json`](examples/two-stage-pipeline.json) | parse then enrich: the slower stage (about 88% utilised) holds the backlog and sets end-to-end p95; gated by an assertion |
 | [`examples/diurnal-autoscaling-cost.json`](examples/diurnal-autoscaling-cost.json) | a compressed daily traffic cycle with an autoscaler held near 50% utilisation, showing provisioned cost versus backlog |
+| [`examples/multi-agent-token-budget.json`](examples/multi-agent-token-budget.json) | a planner → researcher → coder → reviewer agent workflow with a rework loop, `Cost` counted in tokens: about 61,400 tokens per session, so a 20M-token budget covers about 325 sessions; a `CostTotal` adds the agents up and an assertion gates the hourly budget |
 | [`examples/stress/month-instance-m.json`](examples/stress/month-instance-m.json), [`-t.json`](examples/stress/month-instance-t.json) | a 30-day stress test (20 million requests, about 35 s per run): a general-purpose fleet versus a cheaper, slower burstable one under a daily/weekly cycle. Kept out of the top level because the test suite runs every example there |
 | [`examples/sdk/autoscaled-service.ts`](examples/sdk/autoscaled-service.ts) | the same system written with the TypeScript SDK |
 | [`examples/cloudformation/orders-stack.template.json`](examples/cloudformation/orders-stack.template.json) | a CDK-style template (SQS + DLQ + Lambda + ECS + autoscaling + API Gateway throttle) for `surgesim import`; [`.yaml`](examples/cloudformation/orders-stack.template.yaml) is the same stack in YAML with short-form intrinsics |
@@ -330,7 +337,8 @@ Not built yet:
   program (two 10-minute runs), not on production traffic.
 - Importer: only SQS, Lambda, ECS services, SNS topics (sqs and lambda subscriptions), Application Auto Scaling target
   tracking and API Gateway throttling; for Kubernetes, only Deployments, Services and HPAs (no memory limits or OOM
-  kills, nodes or cluster autoscaler, rolling updates, CPU throttling, or synchronous calls that hold the caller's pod).
+  kills, or nodes or cluster autoscaler). Rolling updates replace pods with identical ones. CPU throttling is a smooth slowdown, not 100 ms CFS periods. Synchronous calls hold the caller's request
+  slot, but network latency and work after the response are not modelled.
 - Components: no DynamoDB, load balancers, FIFO queues, batching, step scaling or multi-region.
 - Distributions are fitted one at a time from independent samples; there is no mixture model, expression language or
   richer unit system.

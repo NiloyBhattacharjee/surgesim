@@ -37,11 +37,20 @@ export interface KubernetesServiceOptions {
   concurrencyPerPod?: number;
   startupDelay?: number;
   /**
+   * CPU cores one request uses while being served. Manifests give the limit and request per pod but not this. With it,
+   * a pod that demands more than its `resources.limits.cpu` is throttled (requests take longer), and the HPA works
+   * from CPU use against `resources.requests.cpu` instead of treating busy request slots as CPU.
+   */
+  cpuPerRequest?: number;
+  /** Seconds into the run at which a deploy replaces this Deployment's pods, following its `spec.strategy`. */
+  rollingUpdateAt?: number;
+  /**
    * Where a request goes after this Deployment has served it: to `service` with `probability`, otherwise it
    * completes. The calls are exclusive alternatives (a request makes at most one), so the probabilities add up to at
-   * most 1. Calls are asynchronous: the pod is freed when its own work ends, not when the downstream call returns.
+   * most 1. A call is asynchronous unless `synchronous` is true: the pod is freed when its own work ends. A
+   * synchronous call holds the caller's request slot until the response returns, through every synchronous hop below.
    */
-  calls?: readonly { service: string; probability: number }[];
+  calls?: readonly { service: string; probability: number; synchronous?: boolean }[];
 }
 
 export type ParseManifestsResult = { ok: true; objects: Record<string, unknown>[] } | { ok: false; message: string };
@@ -78,6 +87,32 @@ interface K8sObject {
 const at = (v: unknown, ...path: string[]): unknown => path.reduce<unknown>((x, k) => (isRecord(x) ? x[k] : undefined), v);
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+/** A Kubernetes CPU quantity (`500m`, `1.5`, `2`) in cores, or undefined if it is not a positive one. */
+const cores = (v: unknown): number | undefined => {
+  const m = /^(\d+(?:\.\d+)?)(m?)$/.exec(String(v));
+  const value = m ? Number(m[1]) / (m[2] ? 1000 : 1) : 0;
+  return value > 0 ? value : undefined;
+};
+/** `maxSurge` or `maxUnavailable` from a Deployment's strategy, as RollingUpdate inputs; Kubernetes defaults both to 25%. */
+const rolloutLimit = (v: unknown, key: "maxSurge" | "maxUnavailable"): Record<string, number> | undefined => {
+  if (v === undefined) return { [`${key}Fraction`]: 0.25 };
+  if (typeof v === "number" && Number.isInteger(v) && v >= 0) return { [key]: v };
+  const percent = typeof v === "string" ? /^(\d+)%$/.exec(v) : null;
+  const fraction = percent ? Number(percent[1]) / 100 : NaN;
+  return fraction <= (key === "maxUnavailable" ? 1 : Infinity) ? { [`${key}Fraction`]: fraction } : undefined;
+};
+/** A pod's total CPU limit and request. Undefined unless every container has one: one without a limit can use any spare CPU. */
+const podCpu = (d: K8sObject): { limit?: number; request?: number; anyLimit: boolean } => {
+  const containers = at(d.raw, "spec", "template", "spec", "containers");
+  const list: unknown[] = Array.isArray(containers) ? containers : [];
+  const limits = list.map((c) => cores(at(c, "resources", "limits", "cpu")));
+  // Kubernetes defaults a container's request to its limit.
+  const requests = list.map((c, i) => cores(at(c, "resources", "requests", "cpu")) ?? limits[i]);
+  const total = (values: (number | undefined)[]) => (values.length > 0 && values.every((v) => v !== undefined) ? values.reduce<number>((a, v) => a + (v as number), 0) : undefined);
+  const limit = total(limits);
+  const request = total(requests);
+  return { ...(limit !== undefined ? { limit } : {}), ...(request !== undefined ? { request } : {}), anyLimit: limits.some((v) => v !== undefined) };
+};
 
 /**
  * Convert Kubernetes manifests (parsed with {@link parseManifests}) into a Surgesim model.
@@ -149,14 +184,14 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
     else if (settings.has(d)) errors.push({ message: `services: "${key}" is ${d.id} again` });
     else settings.set(d, s);
   }
-  const calls = new Map<K8sObject, { to: K8sObject; probability: number }[]>();
+  const calls = new Map<K8sObject, { to: K8sObject; probability: number; synchronous: boolean }[]>();
   for (const [d, s] of settings) {
-    const list: { to: K8sObject; probability: number }[] = [];
+    const list: { to: K8sObject; probability: number; synchronous: boolean }[] = [];
     for (const c of s.calls ?? []) {
       const to = resolve(c.service);
       if (typeof to === "string") errors.push({ message: `${d.id} calls ${to}` });
       else if (list.some((x) => x.to === to)) errors.push({ message: `${d.id} calls ${to.id} twice` });
-      else list.push({ to, probability: c.probability });
+      else list.push({ to, probability: c.probability, synchronous: c.synchronous === true });
     }
     const total = list.reduce((a, c) => a + c.probability, 0);
     if (total > 1 + 1e-9) errors.push({ message: `${d.id}: call probabilities add up to ${+total.toPrecision(12)}; a request makes at most one call, so they must add up to at most 1` });
@@ -188,8 +223,14 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
   if (options.concurrencyPerPod === undefined && unset("concurrencyPerPod").length > 0) {
     assumptions.push(`Each pod of ${unset("concurrencyPerPod").join(", ")} serves ${perPodDefault} requests at once (set concurrencyPerPod).`);
   }
-  if (calls.size > 0) {
-    warnings.push("Calls are asynchronous: a pod is freed when its own work ends, not when its downstream call returns, so upstream pods look less busy than they are when a downstream service is slow.");
+  const allCalls = [...calls.values()].flat();
+  /** Deployments that hold a request slot while a synchronous call is out. */
+  const holds = new Set([...calls].filter(([, list]) => list.some((c) => c.synchronous)).map(([d]) => d));
+  if (allCalls.some((c) => !c.synchronous)) {
+    warnings.push("Calls are asynchronous unless marked synchronous: a pod is freed when its own work ends, not when its downstream call returns, so upstream pods look less busy than they are when a downstream service is slow.");
+  }
+  if (holds.size > 0) {
+    warnings.push("Synchronous calls hold the caller's request slot until the response returns; network latency and work after the response are not modelled. The HPA's CPU estimate does not count a waiting slot as busy, so a caller can run out of slots while its HPA sees low CPU.");
   }
 
   const model = new Model(options.name ?? "Imported Kubernetes manifests", {
@@ -225,6 +266,8 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
   /** Where a Deployment's requests arrive: its queue. Sending them to the pool itself would reject them when it is full. */
   const queues = new Map<K8sObject, Component<string>>();
   let probeDelays = false;
+  let throttles = false;
+  let rollouts = false;
   for (const d of deployments) {
     const name = baseName(d);
     const perPod = of(d, "concurrencyPerPod") ?? perPodDefault;
@@ -247,15 +290,29 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
     if (delays.some((x) => x !== undefined)) probeDelays = true;
     const startup = of(d, "startupDelay") ?? options.startupDelay ?? Math.max(0, ...delays.map((x) => x ?? 0));
 
+    const cpuPerRequest = of(d, "cpuPerRequest");
+    const cpu = podCpu(d);
+    const oversubscription = cpuPerRequest !== undefined && cpu.limit !== undefined ? (cpuPerRequest * perPod) / cpu.limit : undefined;
+    if (oversubscription !== undefined && oversubscription > 1) {
+      throttles = true;
+      notes.push(`CPU limit ${cpu.limit} core(s) per pod; with every slot busy a pod demands ${+oversubscription.toPrecision(3)}x that, so requests slow down`);
+    } else if (cpuPerRequest === undefined && cpu.anyLimit) {
+      warnings.push(`${d.id}: its CPU limit is ignored; set cpuPerRequest in the overlay to model throttling.`);
+    } else if (cpuPerRequest !== undefined && cpu.limit === undefined && cpu.anyLimit) {
+      warnings.push(`${d.id}: not every container has a CPU limit, so the pod is modelled as never throttled.`);
+    }
     const queue = model.queue(unique(`${name}-queue`));
     const pool = model.workerPool(unique(name), {
       concurrency: replicas * perPod,
       serviceTime: of(d, "serviceTime") ?? options.serviceTime ?? dist.exponential(0.2),
       costPerProvisionedSecond: 1 / (perPod * 3600),
+      ...(holds.has(d) ? { holdUntilRelease: true } : {}),
+      ...(oversubscription !== undefined && oversubscription > 1 ? { cpuOversubscription: oversubscription } : {}),
       queue,
     });
     pools.set(d, pool);
     queues.set(d, queue);
+    if (holds.has(d)) notes.push("holds a request slot while a synchronous call is out");
     note(d, pool, [...notes, `${replicas} pod(s) x ${perPod} concurrent requests each`, "Cost is in pod-hours"]);
 
     const behavior = at(hpa?.raw, "spec", "behavior");
@@ -270,7 +327,7 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
       const hi = upOff ? replicas : max;
       const window = downOff ? duration : (num(at(behavior, "scaleDown", "stabilizationWindowSeconds")) ?? 300);
       const hn: string[] = [`${lo} to ${hi} pods`];
-      const target = hpaTarget(hpa, warnings, hn);
+      const target = hpaTarget(hpa, warnings, hn, cpuPerRequest !== undefined && cpu.request !== undefined ? (cpuPerRequest * perPod) / cpu.request : undefined);
       if (upOff) {
         warnings.push(`${hpa.id}: scaleUp selectPolicy Disabled is approximated by capping at the starting ${replicas} pod(s); after scaling in, the model can scale back up to that, which the HPA would not.`);
       } else if ((num(at(behavior, "scaleUp", "stabilizationWindowSeconds")) ?? 0) > 0) {
@@ -292,26 +349,68 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
       });
       note(hpa, scaler, hn);
     }
+
+    const rollingUpdateAt = of(d, "rollingUpdateAt");
+    if (rollingUpdateAt !== undefined) {
+      const strategy = at(d.raw, "spec", "strategy");
+      const recreate = at(strategy, "type") === "Recreate";
+      const surge = recreate ? { maxSurge: 0 } : rolloutLimit(at(strategy, "rollingUpdate", "maxSurge"), "maxSurge");
+      const unavailable = recreate ? { maxUnavailableFraction: 1 } : rolloutLimit(at(strategy, "rollingUpdate", "maxUnavailable"), "maxUnavailable");
+      if (!surge || !unavailable) warnings.push(`${d.id}: strategy.rollingUpdate has a value that is not a count or a percentage; its 25% default is used instead.`);
+      if (rollingUpdateAt >= duration) warnings.push(`${d.id}: rollingUpdateAt ${rollingUpdateAt} s is not before the end of the ${duration} s run, so the update never starts.`);
+      const readinessDelay = startup + (num(at(d.raw, "spec", "minReadySeconds")) ?? 0);
+      const rollout = model.rollingUpdate(unique(`${name}-rollout`), {
+        at: rollingUpdateAt,
+        readinessDelay,
+        podSize: perPod,
+        ...(surge ?? { maxSurgeFraction: 0.25 }),
+        ...(unavailable ?? { maxUnavailableFraction: 0.25 }),
+        target: pool,
+      });
+      rollouts = true;
+      note(d, rollout, [`${recreate ? "Recreate" : "rolling update"} at ${rollingUpdateAt} s; a new pod takes traffic after ${readinessDelay} s`]);
+    }
   }
   if (hpaFor.size > 0) {
-    warnings.push("HPA CPU utilisation is approximated as busy request slots / slots: a pod with every slot busy is at 100% of its CPU request. The HPA's 10% tolerance is not modelled.");
+    const proxied = [...hpaFor.keys()].some((d) => of(d, "cpuPerRequest") === undefined || podCpu(d).request === undefined);
+    warnings.push(`${proxied ? "HPA CPU utilisation is approximated as busy request slots / slots unless cpuPerRequest and a CPU request are given: a pod with every slot busy is at 100% of its CPU request. " : ""}The HPA's 10% tolerance is not modelled.`);
     const fromProbes = [...hpaFor.keys()].filter((d) => of(d, "startupDelay") === undefined).map(baseName);
     if (options.startupDelay === undefined && fromProbes.length > 0) {
       assumptions.push(`New pods of ${fromProbes.join(", ")} take traffic after their readinessProbe initialDelaySeconds${probeDelays ? "" : " (none set: 0 s)"}; scheduling, image pull and container start are not included (set startupDelay).`);
     }
   }
+  if (throttles) {
+    warnings.push("CPU throttling is a smooth slowdown fixed when each request starts, not 100 ms CFS periods, so latency percentiles under throttling are understated.");
+  }
+  if (rollouts) {
+    warnings.push("A rolling update's new pods behave like the old ones, and pods that are not ready yet are not in Cost. An old pod finishes its running requests when removed, with no limit from terminationGracePeriodSeconds.");
+  }
   for (const { s, d } of services) note(s, pools.get(d) as Component<string>, [`routes to ${d.id}`]);
 
   // --- where each Deployment sends a request it has served
+  // With synchronous calls, a request frees every caller waiting on it when it completes or makes an asynchronous
+  // call, so those paths go through a Release (one per destination). Without them the model has no Release at all.
+  const releases = new Map<Component<string>, Component<string>>();
+  const freeing = (to: Component<string>, name: string): Component<string> => {
+    if (holds.size === 0) return to;
+    let r = releases.get(to);
+    if (!r) releases.set(to, (r = model.release(unique(name), { next: to })));
+    return r;
+  };
+  const done = () => freeing(completed, "release");
   for (const d of deployments) {
     const pool = pools.get(d) as Component<string>;
     const list = calls.get(d);
     if (!list) {
-      pool.link("next", completed);
+      pool.link("next", done());
       continue;
     }
     const rest = 1 - list.reduce((a, c) => a + c.probability, 0);
-    const targets = [...list.map((c) => queues.get(c.to) as Component<string>), ...(rest > 1e-9 ? [completed] : [])];
+    const callTarget = (c: { to: K8sObject; synchronous: boolean }) => {
+      const queue = queues.get(c.to) as Component<string>;
+      return c.synchronous ? queue : freeing(queue, `${baseName(c.to)}-release`);
+    };
+    const targets = [...list.map(callTarget), ...(rest > 1e-9 ? [done()] : [])];
     const probabilities = [...list.map((c) => c.probability), ...(rest > 1e-9 ? [rest] : [])];
     pool.link("next", model.branch(unique(`${pool.name}-calls`), { targets, probabilities }));
   }
@@ -341,22 +440,30 @@ export function importKubernetes(objects: readonly unknown[], options: Kubernete
 
   model.sampleEvery(5, deployments.flatMap((d) => {
     const pool = (pools.get(d) as Component<string>).name;
-    return [`${pool}.Concurrency`, `${pool}.BusyWorkers`];
+    return [`${pool}.Concurrency`, `${pool}.BusyWorkers`, ...(holds.has(d) ? [`${pool}.HeldWorkers`] : [])];
   }));
   return { ok: true, model: model.toJSON(), mapped, ignored, assumptions, warnings };
 }
 
-/** The HPA's CPU utilisation target as a fraction (v1 `targetCPUUtilizationPercentage` or a v2 Resource metric). */
-function hpaTarget(hpa: K8sObject, warnings: string[], notes: string[]): number {
+/**
+ * The HPA's target as a fraction of busy request slots, which is what the Autoscaler measures. From v1
+ * `targetCPUUtilizationPercentage` or a v2 Resource metric. `fullPodLoad` is the CPU a pod with every slot busy uses,
+ * as a multiple of its CPU request; without it, every slot busy counts as 100% of the request.
+ */
+function hpaTarget(hpa: K8sObject, warnings: string[], notes: string[], fullPodLoad?: number): number {
   const spec = at(hpa.raw, "spec");
   let percent = num(at(spec, "targetCPUUtilizationPercentage"));
+  let cpuMetric = true;
   const metrics = at(spec, "metrics");
   if (Array.isArray(metrics) && metrics.length > 0) {
     const utilisation = (m: unknown) => (at(m, "type") === "Resource" && at(m, "resource", "target", "type") === "Utilization" ? num(at(m, "resource", "target", "averageUtilization")) : undefined);
     const cpu = metrics.find((m) => at(m, "resource", "name") === "cpu" && utilisation(m) !== undefined);
     const other = metrics.find((m) => utilisation(m) !== undefined);
     percent = utilisation(cpu ?? other);
-    if (!cpu && other) warnings.push(`${hpa.id}: the ${String(at(other, "resource", "name"))} utilisation target is approximated as busy request slots.`);
+    if (!cpu && other) {
+      cpuMetric = false;
+      warnings.push(`${hpa.id}: the ${String(at(other, "resource", "name"))} utilisation target is approximated as busy request slots.`);
+    }
     if (metrics.length > 1) warnings.push(`${hpa.id}: only one metric is modelled; Kubernetes scales on the highest recommendation across all ${metrics.length}.`);
     if (percent === undefined) warnings.push(`${hpa.id}: no Resource Utilization metric; assumed an 80% CPU target.`);
   }
@@ -366,6 +473,13 @@ function hpaTarget(hpa: K8sObject, warnings: string[], notes: string[]): number 
   }
   if (percent > 100 || percent < 5) warnings.push(`${hpa.id}: a ${percent}% target is outside what the model can represent; clamped to ${clamp(percent, 5, 100)}%.`);
   percent = clamp(percent, 5, 100);
-  notes.push(`target ${percent}% CPU, treated as ${percent}% busy request slots`);
-  return percent / 100;
+  if (fullPodLoad === undefined || !cpuMetric) {
+    notes.push(`target ${percent}% CPU, treated as ${percent}% busy request slots`);
+    return percent / 100;
+  }
+  const slots = percent / 100 / fullPodLoad;
+  if (slots > 1) warnings.push(`${hpa.id}: with every slot busy a pod uses ${+(fullPodLoad * 100).toPrecision(3)}% of its CPU request, below the ${percent}% target, so CPU never drives a scale-out.`);
+  if (slots < 0.05) warnings.push(`${hpa.id}: the ${percent}% target is reached at ${+(slots * 100).toPrecision(3)}% busy slots, below what the model can represent; clamped to 5%.`);
+  notes.push(`target ${percent}% CPU, reached at ${+(slots * 100).toPrecision(3)}% busy request slots`);
+  return clamp(slots, 0.05, 1);
 }

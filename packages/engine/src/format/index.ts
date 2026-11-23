@@ -10,3 +10,4 @@ export type {
   AssertionOp,
   AssertionStatistic,
 } from "./definition.js";
+export { modelJsonSchema, MODEL_JSON_SCHEMA_URL } from "./json-schema.js";

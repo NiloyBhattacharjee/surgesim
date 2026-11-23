@@ -16,8 +16,10 @@ export type ParseOverlayResult = { ok: true; options: KubernetesImportOptions } 
  *   web-frontend:
  *     concurrencyPerPod: 50
  *     startupDelay: 30
+ *     cpuPerRequest: 0.1
+ *     rollingUpdateAt: 600
  *     serviceTime: { dist: lognormal, mean: 0.04, stdDev: 0.015 }
- *     calls: [{ service: orders-api, probability: 0.6 }]
+ *     calls: [{ service: orders-api, probability: 0.6, synchronous: true }]
  * ```
  *
  * Values use the model format's units (seconds, per second) and sampler JSON, so they pass to the model unchanged.
@@ -80,7 +82,7 @@ export function parseOverlay(text: string): ParseOverlayResult {
           err(path, "must be a mapping");
           continue;
         }
-        keys(s, path, ["serviceTime", "concurrencyPerPod", "startupDelay", "calls"]);
+        keys(s, path, ["serviceTime", "concurrencyPerPod", "startupDelay", "cpuPerRequest", "rollingUpdateAt", "calls"]);
         const o: KubernetesServiceOptions = {};
         const st = s["serviceTime"];
         if (st !== undefined) {
@@ -95,19 +97,29 @@ export function parseOverlay(text: string): ParseOverlayResult {
           const d = number(s["startupDelay"], `${path}.startupDelay`, 0);
           if (d !== undefined) o.startupDelay = d;
         }
+        if (s["cpuPerRequest"] !== undefined) {
+          const c = number(s["cpuPerRequest"], `${path}.cpuPerRequest`, 0.001); // 1m, Kubernetes' smallest CPU unit
+          if (c !== undefined) o.cpuPerRequest = c;
+        }
+        if (s["rollingUpdateAt"] !== undefined) {
+          const t = number(s["rollingUpdateAt"], `${path}.rollingUpdateAt`, 0);
+          if (t !== undefined) o.rollingUpdateAt = t;
+        }
         const calls = s["calls"];
         if (calls !== undefined) {
-          if (!Array.isArray(calls)) err(`${path}.calls`, "must be a list of { service, probability }");
+          if (!Array.isArray(calls)) err(`${path}.calls`, "must be a list of { service, probability, synchronous? }");
           else {
-            const list: { service: string; probability: number }[] = [];
+            const list: { service: string; probability: number; synchronous?: boolean }[] = [];
             calls.forEach((c, i) => {
               const cp = `${path}.calls[${i}]`;
-              if (!isRecord(c)) return err(cp, "must be { service, probability }");
-              keys(c, cp, ["service", "probability"]);
+              if (!isRecord(c)) return err(cp, "must be { service, probability, synchronous? }");
+              keys(c, cp, ["service", "probability", "synchronous"]);
               if (typeof c["service"] !== "string") return err(`${cp}.service`, "must be a Service or Deployment name");
               const p = c["probability"];
               if (typeof p !== "number" || !(p >= 0 && p <= 1)) return err(`${cp}.probability`, "must be a number in [0, 1]");
-              list.push({ service: c["service"], probability: p });
+              const sync = c["synchronous"];
+              if (sync !== undefined && typeof sync !== "boolean") return err(`${cp}.synchronous`, "must be true or false");
+              list.push({ service: c["service"], probability: p, ...(sync === true ? { synchronous: true } : {}) });
             });
             o.calls = list;
           }

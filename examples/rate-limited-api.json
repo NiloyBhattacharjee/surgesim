@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json",
   "version": 1,
   "name": "Rate-limited API: a token bucket sheds a burst before it reaches the workers",
   "description": "Steady 20/s traffic jumps to 80/s for one minute. The limiter allows 40/s sustained with a burst of 100, so about a quarter of all requests are rejected (limiter.RejectionFraction) and the 25 workers at 0.5 s each (capacity 50/s) throttle only about 1.6% (pool.ThrottleFraction). Raise the limiter rate to 80 to see the pool throttle heavily instead.",

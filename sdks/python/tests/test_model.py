@@ -15,7 +15,9 @@ EXAMPLES = os.path.join(os.path.dirname(__file__), "..", "..", "..", "examples")
 
 def example(name):
     with open(os.path.join(EXAMPLES, name), encoding="utf8") as f:
-        return json.load(f)
+        model = json.load(f)
+    model.pop("$schema", None)  # only points editors at the format; the SDK does not emit it
+    return model
 
 
 def by_name(model):

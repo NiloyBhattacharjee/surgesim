@@ -17,6 +17,9 @@ const LOOK: Record<string, [label: string, kind: string, name: string]> = {
   Autoscaler: ["Autoscaler", "control", "autoscaler"],
   Topic: ["Topic (SNS)", "queue", "topic"],
   Branch: ["Branch", "control", "branch"],
+  Release: ["Release (response)", "control", "release"],
+  RollingUpdate: ["Rolling update", "control", "rollout"],
+  CostTotal: ["Cost total", "control", "total"],
   EntitySink: ["Done (sink)", "sink", "done"],
 };
 const look = (type: string): [string, string, string] => LOOK[type] ?? [type, "control", type[0]!.toLowerCase() + type.slice(1)];

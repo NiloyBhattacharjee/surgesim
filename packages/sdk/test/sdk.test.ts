@@ -4,7 +4,11 @@ import { describe, expect, it } from "vitest";
 import { createDefaultRegistry, loadModel, runModel } from "@surgesim/engine";
 import { Model, ModelBuildError, SPECS, dist, poissonArrivals, time } from "../src/index.js";
 
-const example = (file: string): unknown => JSON.parse(readFileSync(fileURLToPath(new URL(`../../../examples/${file}`, import.meta.url)), "utf8"));
+// "$schema" only points editors at the format; the SDK does not emit it.
+const example = (file: string): unknown => {
+  const { $schema: _, ...model } = JSON.parse(readFileSync(fileURLToPath(new URL(`../../../examples/${file}`, import.meta.url)), "utf8"));
+  return model;
+};
 
 describe("compiles to exactly the JSON the hand-written examples contain", () => {
   it("M/M/1 (examples/mm1.json)", () => {

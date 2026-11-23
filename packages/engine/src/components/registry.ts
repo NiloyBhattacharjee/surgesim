@@ -3,6 +3,8 @@ import type { ComponentSchema } from "../schema/index.js";
 import { EntityGenerator } from "./generator.js";
 import { Autoscaler } from "./autoscaler.js";
 import { Branch } from "./branch.js";
+import { Release } from "./release.js";
+import { RollingUpdate } from "./rolling-update.js";
 import { MessageQueue } from "./message-queue.js";
 import { Queue } from "./queue.js";
 import { RateLimiter } from "./rate-limiter.js";
@@ -10,6 +12,7 @@ import { RetryPolicy } from "./retry-policy.js";
 import { Server } from "./server.js";
 import { EntitySink } from "./sink.js";
 import { Topic } from "./topic.js";
+import { CostTotal } from "./cost-total.js";
 import { WorkerPool } from "./worker-pool.js";
 
 /** A component class: a static schema plus a constructor. */
@@ -55,5 +58,8 @@ export function createDefaultRegistry(): ComponentRegistry {
     .register(RateLimiter)
     .register(Autoscaler)
     .register(Topic)
-    .register(Branch);
+    .register(Branch)
+    .register(Release)
+    .register(RollingUpdate)
+    .register(CostTotal);
 }

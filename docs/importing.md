@@ -116,6 +116,8 @@ The result has the same shape as `importCloudFormation`'s: the model plus `mappe
 |---|---|---|
 | `Deployment` | a `Queue` feeding a `WorkerPool` with `replicas × concurrencyPerPod` workers | `replicas` (default 1); the largest container `readinessProbe.initialDelaySeconds` is how long a new pod takes to receive traffic |
 | `HorizontalPodAutoscaler` (`autoscaling/v1` or `v2`) | `Autoscaler`: evaluates every 15 s, scales in whole pods (`step`), new pods take traffic after the readiness delay (`scaleUpDelay`) | `minReplicas`, `maxReplicas`, the CPU `averageUtilization` (or `targetCPUUtilizationPercentage`, default 80%), `behavior.scaleDown.stabilizationWindowSeconds` (default 300) |
+| `spec.strategy` | with `rollingUpdateAt` in the overlay: a [`RollingUpdate`](model-format.md#rollingupdate) (`<name>-rollout`) ([below](#rolling-updates)) | `rollingUpdate.maxSurge` and `maxUnavailable` (count or percentage, default 25%), `type: Recreate`, `minReadySeconds` |
+| Container `resources` | with `cpuPerRequest` in the overlay: CPU throttling and the HPA's CPU estimate ([below](#cpu-limits-and-throttling)) | `limits.cpu`, `requests.cpu` (defaults to the limit), summed over the pod's containers |
 | `Service` | nothing of its own: it marks the Deployment its `selector` matches as an entry point, and `entry` can name it | `selector` |
 
 Each pool's `Cost` is in **pod-hours**, and the model samples every Deployment's `Concurrency` (pods × requests per pod)
@@ -129,16 +131,17 @@ and `BusyWorkers` every 5 s, so the report shows whether the HPA kept up.
 | `concurrencyPerPod` | requests one pod serves at once; beyond that they queue | 10 |
 | `startupDelay` | seconds from pod creation to taking traffic | the readiness probe's `initialDelaySeconds` |
 | `entry` | Service or Deployment names (or `namespace/name`) that receive traffic; a name found in several namespaces is ignored as ambiguous | Deployments behind a Service that no other Deployment calls, else all Deployments no other calls |
-| `services` | per-Deployment `serviceTime`, `concurrencyPerPod`, `startupDelay` and `calls`, keyed by Service or Deployment name; see the overlay below | none |
+| `services` | per-Deployment `serviceTime`, `concurrencyPerPod`, `startupDelay`, `cpuPerRequest`, `rollingUpdateAt` and `calls`, keyed by Service or Deployment name; see the overlay below | none |
 | `duration`, `warmUp`, `seed`, `replications`, `name` | run settings | 600 s, 0, 1, 5 |
 
 Approximations, each stated in the warnings: a Deployment's pods share one queue (an ideal load balancer, somewhat
-better than per-pod round-robin); the HPA's CPU utilisation is treated as busy request slots, so a pod with every slot
-busy is at 100% of its CPU request; only one HPA metric is used; `selectPolicy: Disabled` on scale-down is modelled
+better than per-pod round-robin); without `cpuPerRequest`, the HPA's CPU utilisation is treated as busy request slots,
+so a pod with every slot busy is at 100% of its CPU request; only one HPA metric is used; `selectPolicy: Disabled` on scale-down is modelled
 exactly (never below the starting pods), on scale-up it caps at the starting pods (the model may scale back up to that
 after scaling in, which the HPA would not), and on both it means no autoscaler; scale-up stabilisation, scaling rate policies and the
 HPA's 10% tolerance are not modelled. Every other kind (Ingress, ConfigMap, StatefulSet, ...) is listed as ignored.
-Memory limits and OOM kills, nodes and the cluster autoscaler, rolling updates and CPU throttling are not modelled.
+Memory limits and OOM kills, and nodes and the cluster autoscaler, are not modelled.
+Synchronous calls are opt-in per call (below).
 
 ## The overlay file
 
@@ -157,7 +160,7 @@ services:
     startupDelay: 30
     serviceTime: { dist: lognormal, mean: 0.04, stdDev: 0.015 }
     calls:
-      - { service: orders-api, probability: 0.6 }
+      - { service: orders-api, probability: 0.6, synchronous: true }   # web waits for the response
   orders-api:
     serviceTime: { dist: lognormal, mean: 0.12, stdDev: 0.06 }
     calls:
@@ -180,10 +183,77 @@ Deployment (or matches several), a Deployment listed twice, call probabilities a
 
 **Calls.** After a Deployment serves a request, the request goes to one called service with that call's probability, or
 completes with the remaining probability, through a [`Branch`](model-format.md). So `calls` are exclusive alternatives
-(a request makes at most one call per hop), and end-to-end latency at the `completed` sink includes every hop. Calls are
-**asynchronous**: a pod is freed when its own work ends, not when its downstream call returns, so when a downstream
-service is slow the model understates how busy the upstream pods are. Deployments that another Deployment calls get no
-traffic of their own unless `entry` names them.
+(a request makes at most one call per hop), and end-to-end latency at the `completed` sink includes every hop.
+Deployments that another Deployment calls get no traffic of their own unless `entry` names them.
+
+A call is **asynchronous** unless it says `synchronous: true`: the caller's pod is freed when its own work ends, as for a
+queue message. A **synchronous** call (an HTTP or gRPC request the caller waits on) holds the caller's request slot until
+the response returns, which is when the callee's own synchronous calls have returned too. The caller becomes a
+`WorkerPool` with `holdUntilRelease`, and completions and asynchronous calls pass through a
+[`Release`](model-format.md#release--role-receiver) (`release`, `<service>-release`) that frees the waiting slots; an
+overlay without synchronous calls produces no `Release` and the same model as before. The pool's `HeldWorkers` is
+sampled over time. Network latency and work the caller does after the response are not modelled.
+
+A slot that waits uses no CPU, so the HPA's CPU estimate does not count it: a caller can run out of request slots while
+its HPA sees little load, and scales out more slowly than its queue needs. In the [example below](#example-will-the-hpa-keep-up),
+marking both calls synchronous adds about 0.09 s of waiting per frontend request. The frontend's backlog then peaks near
+11,300 instead of 4,500, and p99 reaches about 28 s instead of 11 s.
+
+### CPU limits and throttling
+
+Manifests give a pod's CPU limit and request, but not how much CPU a request uses. Add that per service:
+
+```yaml
+services:
+  web:
+    concurrencyPerPod: 20
+    cpuPerRequest: 0.04   # cores one request uses while being served
+```
+
+Measure it as a pod's CPU use divided by its busy request slots. With `cpuPerRequest` set:
+
+- **Throttling.** A pod with every slot busy demands `cpuPerRequest × concurrencyPerPod` cores. Above `limits.cpu`, requests
+  slow down in proportion to the excess (the pool gets [`cpuOversubscription`](model-format.md#workerpool), and its
+  `AverageCpuStretch` reports the mean slowdown), and throughput stops at `limit / (cpuPerRequest × service time)` per pod.
+  If any container has no limit, the pod is never throttled.
+- **HPA.** The HPA works from CPU use against `requests.cpu` rather than from busy slots: its target is reached at
+  `target × request / (cpuPerRequest × concurrencyPerPod)` of the slots, and because use stops at the limit it sees at most
+  `limit / request`. The import warns when the target cannot be reached, or falls below the 5% of slots the model can represent.
+
+Without `cpuPerRequest`, limits are ignored (the import warns about each one) and busy slots stand in for CPU. In the
+[example below](#example-will-the-hpa-keep-up) with `cpuPerRequest: 0.04` on the frontend, a 1-core limit never throttles
+and the spike peaks at about 190 queued requests, with p99 about 0.7 s. Lowering the limit to `500m` asks for 1.6 times the
+limit at full load: the backlog peaks near 6,700 and p99 reaches about 16 s. Throttling is a smooth slowdown, fixed when each
+request starts, not 100 ms CFS periods, so percentiles under throttling are understated.
+
+### Rolling updates
+
+Manifests say how a Deployment rolls out but not when. Give the time, and check whether capacity during a deploy under load
+is enough:
+
+```yaml
+services:
+  web:
+    rollingUpdateAt: 310   # seconds into the run
+```
+
+The update follows the Deployment's `spec.strategy`. A new pod takes traffic after the [readiness delay](#importing-kubernetes-manifests)
+plus `minReadySeconds`. Percentages resolve against the pods at that moment, so an HPA that has scaled out changes them:
+Kubernetes' default of 25% rounds `maxUnavailable` down to 0 on 3 pods, but allows 3 unavailable on 12. A Deployment's
+`Concurrency` over time shows the dip, and the rollout's `RolloutSeconds` how long it took.
+
+In the [example below](#example-will-the-hpa-keep-up), deploying the frontend 10 s into the spike, with 3 pods running (all runs: 20 minutes, 5 replications):
+
+| `web-frontend` `strategy` | Pods out | Deploy takes | Backlog peak | `completed.p99` |
+|---|---|---|---|---|
+| default (25% / 25%) | 0 | 90 s | about 4,500 | 10.6 s, the same as with no deploy |
+| `rollingUpdate: { maxSurge: 0, maxUnavailable: 1 }` | 1 | 90 s | about 8,000 | 19.3 s |
+| `type: Recreate` | all 3, for 30 s | 30 s | about 13,400 | 33.1 s |
+
+New pods behave like the old ones, so a deploy that changes service times is a separate model to [compare](reports.md).
+A removed pod finishes its running requests, however long they take: `terminationGracePeriodSeconds` is not modelled.
+
+### Real data
 
 Service times and call probabilities can come from real data: `surgesim fit` ([calibration](calibration.md)) fits a
 distribution to measured durations, such as span durations exported from OpenTelemetry or Jaeger traces, and

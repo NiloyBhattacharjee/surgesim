@@ -6,6 +6,29 @@ and the packages use [semantic versioning](https://semver.org/) (pre-1.0: minor 
 ## [Unreleased]
 
 ### Added
+- `CostTotal`, a component that adds up the `Cost` of the `WorkerPool`s and `MessageQueue`s it links to (`sources`),
+  so one output and one assertion cover a whole budget. Both types gain the role `costed`. The SDKs have `costTotal()` /
+  `cost_total()`. New example [examples/multi-agent-token-budget.json](examples/multi-agent-token-budget.json) uses it
+  to count tokens across four agents and estimate how many sessions a token budget covers.
+- A JSON Schema for the model format, [docs/model.schema.json](docs/model.schema.json), generated from the component
+  schemas. Point a model's new top-level `"$schema"` field at it and VS Code (and other editors that read JSON Schema)
+  offers autocomplete, hover docs and inline errors; engines ignore the field, and the examples set it.
+  `surgesim schema --json-schema` prints the schema for your installed version, and `@surgesim/engine` exports
+  `modelJsonSchema()`.
+- Synchronous calls. A `WorkerPool` with `holdUntilRelease` keeps a worker busy after service, waiting for the response,
+  until the entity passes the new `Release` component; the `Autoscaler` does not count held workers as busy (waiting
+  uses no CPU), and `HeldWorkers` reports them. Kubernetes overlays mark a call `synchronous: true`; calls stay
+  asynchronous by default, and models without synchronous calls are unchanged. The TypeScript and Python SDKs have
+  `release()`. ([#55](https://github.com/NiloyBhattacharjee/surgesim/issues/55))
+- CPU limits. A `WorkerPool`'s new `cpuOversubscription` stretches service times once its workers demand more CPU than
+  their limit, caps the CPU an `Autoscaler` sees, and reports `AverageCpuStretch`. Kubernetes overlays set `cpuPerRequest`
+  per service: the import reads `resources.limits.cpu` and `requests.cpu`, models throttling, and bases the HPA on CPU
+  use rather than busy request slots. Without `cpuPerRequest`, imports are unchanged apart from a warning about ignored
+  limits. ([#59](https://github.com/NiloyBhattacharjee/surgesim/issues/59))
+- Rolling updates. A new `RollingUpdate` component replaces a `WorkerPool`'s pods once at a given time, under the
+  Kubernetes Deployment controller's `maxSurge` and `maxUnavailable` rules. Kubernetes overlays set `rollingUpdateAt` per
+  service, and the import reads `spec.strategy` (including `Recreate`) and `minReadySeconds`. The TypeScript and Python
+  SDKs have `rollingUpdate()` and `rolling_update()`. ([#58](https://github.com/NiloyBhattacharjee/surgesim/issues/58))
 - `EntitySink` input `percentiles: "streaming"`: approximate p50/p95/p99 from a t-digest in constant memory, for long
   or high-rate runs and the browser demo. The default stays `"exact"`. ([#20](https://github.com/NiloyBhattacharjee/surgesim/issues/20))
 - Comparison reports show **what changed in the model** (settings, components added or removed, inputs, links and

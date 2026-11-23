@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json",
   "version": 1,
   "name": "Serverless function: traffic spike, cold starts and throttling",
   "description": "A function with a concurrency limit of 60, 1.5 s cold starts and a 60 s idle timeout. A 5x spike at t=120 exhausts concurrency; throttled calls are retried with exponential backoff and full jitter.",

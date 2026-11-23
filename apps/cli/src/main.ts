@@ -6,6 +6,7 @@ import {
   defaultTimeSeries,
   describeSchema,
   isKnownOutputId,
+  modelJsonSchema,
   runModel,
   type AssertionDefinition,
   type RunOptions,
@@ -44,6 +45,7 @@ const USAGE = `Usage:
   surgesim calibrate <model> --observed observed.json       Compare a model with what the real system measured
   surgesim compile <model.ts|.js|.json> [--out model.json]   Build a model module to the JSON format
   surgesim schema            Print the component schemas as JSON
+  surgesim schema --json-schema   Print the model format as a JSON Schema (for editor autocomplete and errors)
   surgesim mcp               Serve schema, validate, run and compare as MCP tools over stdio (for AI agents)
 
 A <model> is a .json file, or a .js/.ts module whose default export is a model built with @surgesim/sdk.
@@ -144,6 +146,7 @@ export async function runCli(argv: string[], host: CliHost): Promise<number> {
         title: { type: "string" },
         "label-a": { type: "string" },
         "label-b": { type: "string" },
+        "json-schema": { type: "boolean" },
         help: { type: "boolean", short: "h" },
       },
     });
@@ -167,7 +170,8 @@ ${HINT}`);
   }
 
   if (command === "schema") {
-    logger.info(JSON.stringify(createDefaultRegistry().schemas().map(describeSchema), null, 2));
+    const out = values["json-schema"] ? modelJsonSchema() : createDefaultRegistry().schemas().map(describeSchema);
+    logger.info(JSON.stringify(out, null, 2));
     return EXIT_OK;
   }
 

@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json",
   "version": 1,
   "name": "M/M/1 queue (lambda=0.8, mu=1)",
   "description": "Classic M/M/1. Theory: utilisation 0.8, Lq 3.2, Wq 4.0, W 5.0.",

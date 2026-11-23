@@ -16,6 +16,7 @@ Rust/WASM later). It contains only plain JSON values and no language-specific co
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json",
   "version": 1,
   "name": "optional human-readable name",
   "description": "optional text",
@@ -23,6 +24,28 @@ Rust/WASM later). It contains only plain JSON values and no language-specific co
   "components": [ ... ]
 }
 ```
+
+`"$schema"` is optional and ignored by engines; it tells editors where the JSON Schema is (see
+[Editor support](#editor-support)).
+
+## Editor support
+
+[model.schema.json](model.schema.json) describes this format as a JSON Schema (draft-07), generated from the component
+schemas. With `"$schema"` set as above, VS Code, JetBrains IDEs and other editors that read JSON Schema complete
+component types, input and link keys and distribution parameters, show each key's description and default on hover,
+and underline unknown keys, wrong types, out-of-range values and missing required inputs as you type.
+
+The URL above follows `main`. To match an installed version, write the schema next to your models with
+`surgesim schema --json-schema > model.schema.json` and use `"$schema": "./model.schema.json"`. To skip the field,
+VS Code can apply the schema by file name in `settings.json`:
+
+```json
+"json.schemas": [{ "fileMatch": ["*.surgesim.json"], "url": "https://raw.githubusercontent.com/NiloyBhattacharjee/surgesim/main/docs/model.schema.json" }]
+```
+
+The schema checks each value on its own. Checks that involve other parts of the model (that a link names an existing
+component with the right role, that `uniform` has `min <= max`, that an assertion names a real output) are done only
+by the loader: run `surgesim run` or the MCP `validate` tool for those.
 
 ## `settings`
 
@@ -169,14 +192,28 @@ omit `queue` and send entities to the pool; when every worker is busy the entity
 | `costPerBusySecond` | number ≥ 0 (cost) | `0` | Price per busy-worker-second (serverless-style billing). |
 | `costPerProvisionedSecond` | number ≥ 0 (cost) | `0` | Price per provisioned-worker-second, busy or idle; follows autoscaling. |
 | `costPerRequest` | number ≥ 0 (cost) | `0` | Price per request started. |
+| `holdUntilRelease` | boolean | `false` | A synchronous call: after service the worker stays busy, waiting for the response, until the entity passes a [`Release`](#release--role-receiver). |
+| `cpuOversubscription` | number ≥ 0 | `1` | CPU the pool would use with every worker computing, as a multiple of its CPU limit. Above 1, CPU throttling applies. |
 
 Links: `queue` (role `pullable`), `next`, `onFailure`, `onThrottle` (role `receiver`, all optional).
 Failures: with `onFailure` the entity goes there and is acknowledged; otherwise a `MessageQueue` source
 redelivers it after the visibility timeout and anything else loses it (counted in `NumberFailed`).
 Throttled entities go to `onThrottle` or are dropped (counted).
-Outputs: `Utilisation` (busy / provisioned concurrency), `AverageBusyWorkers`, `BusyWorkers`, `Concurrency`
-(current limit), `AverageConcurrency`, `ColdStarts`, `NumberSucceeded`, `NumberFailed`, `NumberThrottled`,
-`ThrottleFraction` (throttled / pushed), `Cost`, `StaleAcks`.
+Outputs: `Utilisation` (busy / provisioned concurrency), `AverageBusyWorkers`, `BusyWorkers`, `HeldWorkers`
+(current, waiting for a `Release`), `Concurrency` (current limit), `AverageConcurrency`, `AverageCpuStretch` (mean
+slowdown from CPU throttling; 1 means none), `ColdStarts`,
+`NumberSucceeded`, `NumberFailed`, `NumberThrottled`, `ThrottleFraction` (throttled / pushed), `Cost`, `StaleAcks`.
+
+A held worker counts as busy everywhere (against `concurrency`, in `BusyWorkers`, `Utilisation` and `Cost`) except for
+an `Autoscaler`, which treats busy workers as a CPU measure: a worker waiting for a response uses no CPU. A failed entity
+does not hold its worker.
+
+**CPU throttling.** With `cpuOversubscription` above 1, a request's service time is multiplied by
+`max(1, computingWorkers / concurrency × cpuOversubscription)` when it starts, counting itself and not held workers.
+A saturated pool therefore completes `concurrency / (E[service] × cpuOversubscription)` entities per second. An
+`Autoscaler` sees busy workers capped at `concurrency / cpuOversubscription`, as CPU use stops at the limit. This is a
+smooth slowdown, fixed when each request starts: mean latency matches processor sharing, but 100 ms CFS periods are not
+modelled, so latency percentiles under throttling are understated.
 
 `Cost = busySeconds × costPerBusySecond + provisionedSeconds × costPerProvisionedSecond + requestsStarted × costPerRequest`,
 over the measured window (after `warmUp`). `provisionedSeconds` is the time-integral of the concurrency limit.
@@ -276,10 +313,65 @@ some requests call a downstream service (route the rest to an `EntitySink`). Dra
 
 Link: `targets` (a **list**, role `receiver`, **required**). Output: `NumberRouted`.
 
+### `Release` — role `receiver`
+Frees every worker slot an entity holds (from `WorkerPool`s with `holdUntilRelease`), then passes it to `next`,
+instantly. Together they model synchronous calls: `frontend` (holding) → `orders` → `Release` → sink keeps a frontend
+worker busy until orders has served the request. Put a `Release` wherever a response goes back: where the request
+completes, and before an asynchronous hop the callers do not wait for. A request follows one path and nothing happens
+after a response returns, so at that point every caller waiting on it has its response and all of them are freed at once.
+
+```json
+{ "type": "Release", "name": "respond", "links": { "next": "done" } }
+```
+
+No inputs. Link: `next` (role `receiver`, optional). Output: `NumberReleased` (worker slots freed).
+An entity that leaves the model without passing a `Release` (dropped, lost, or consumed by a sink) keeps its slots held
+for the rest of the run. A `Topic`'s copies do not carry the original's holds.
+
+### `RollingUpdate`
+Replaces a `WorkerPool`'s pods once, like a Kubernetes Deployment rollout. From `at`, it creates new pods and removes old
+ones as fast as its limits allow: at most `maxSurge` pods above the desired count and at most `maxUnavailable` below it.
+
+```json
+{ "type": "RollingUpdate", "name": "deploy", "inputs": { "at": 300, "readinessDelay": 30, "podSize": 20, "maxSurgeFraction": 0.25, "maxUnavailableFraction": 0.25 }, "links": { "target": "web" } }
+```
+
+| Input | Type | Default | |
+|---|---|---|---|
+| `at` | number ≥ 0 (s) | **required** | When the update starts. |
+| `readinessDelay` | number ≥ 0 (s) | `0` | From a new pod being created to it taking work. |
+| `podSize` | integer ≥ 1 | `1` | Workers per pod. |
+| `maxSurge` | integer ≥ 0 | `0` | Pods allowed above the desired count. |
+| `maxSurgeFraction` | number ≥ 0 | `0` | Added to `maxSurge`: this share of the pods at `at`, rounded up. |
+| `maxUnavailable` | integer ≥ 0 | `0` | Pods allowed below the desired count. |
+| `maxUnavailableFraction` | number in [0, 1] | `0` | Added to `maxUnavailable`: this share of the pods at `at`, rounded down. |
+
+Link: `target` (role `scalable`, required). Outputs: `PodsReplaced`, `RolloutSeconds` (not a number until it finishes).
+
+As in Kubernetes, if both limits come to 0, `maxUnavailable` is 1 so that the update makes progress. `Recreate` is
+`maxUnavailableFraction: 1`: every pod goes at once and the pool serves nothing for `readinessDelay`. A removed pod takes no
+new work and finishes what it is running, as when an `Autoscaler` lowers the limit. The pool's `Concurrency` and `Cost`
+follow the pods serving, so a pod that is not ready yet is not billed. An `Autoscaler` on the same pool works from its
+nominal size throughout: the update's missing pods do not read as a reason to scale.
+
+### `CostTotal`
+Adds up the `Cost` of its sources, so one output (and one assertion) covers a whole budget. `Cost` is in whatever
+unit the prices are: money, or tokens when a pool's `costPerRequest` is the tokens a call reads and `costPerBusySecond`
+the tokens it writes per second (see [`examples/multi-agent-token-budget.json`](../examples/multi-agent-token-budget.json)).
+Entities never pass through it.
+
+```json
+{ "type": "CostTotal", "name": "tokens", "links": { "sources": ["planner", "coder", "reviewer"] } }
+```
+
+No inputs. Link: `sources` (a **list**, role `costed`, **required**). Output: `Cost`, the sum of the sources' `Cost` over
+the measured window (after `warmUp`). Gate a budget with an assertion such as
+`{ "output": "tokens.Cost", "op": "<=", "value": 20000000, "statistic": "max" }`.
+
 ### Roles
-`Queue` has roles `receiver`, `queue`, `pullable`; `MessageQueue` has `receiver`, `pullable`; `WorkerPool` has
-`receiver`, `scalable`; `Topic` and `Branch` have `receiver`. `Server.queue` needs role `queue` (so a plain `Queue`); `WorkerPool.queue` needs `pullable`
-(either); `Autoscaler.target` needs `scalable`.
+`Queue` has roles `receiver`, `queue`, `pullable`; `MessageQueue` has `receiver`, `pullable`, `costed`; `WorkerPool` has
+`receiver`, `scalable`, `costed`; `Topic`, `Branch` and `Release` have `receiver`. `Server.queue` needs role `queue` (so a plain `Queue`); `WorkerPool.queue` needs `pullable`
+(either); `Autoscaler.target` needs `scalable`; `CostTotal.sources` needs `costed`.
 
 ## Assertions
 

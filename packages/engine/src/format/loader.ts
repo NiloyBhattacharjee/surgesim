@@ -19,7 +19,7 @@ export type LoadResult =
   | { ok: false; errors: ValidationError[] };
 
 const SETTINGS_KEYS = ["duration", "warmUp", "seed", "replications", "ticksPerSecond", "timeSeries"];
-const TOP_KEYS = ["version", "name", "description", "settings", "components", "assertions"];
+const TOP_KEYS = ["$schema", "version", "name", "description", "settings", "components", "assertions"];
 const ASSERTION_KEYS = ["output", "op", "value", "statistic", "name"];
 const COMPONENT_KEYS = ["type", "name", "inputs", "links", "stream"];
 
@@ -45,7 +45,7 @@ export function loadModel(json: unknown, registry: ComponentRegistry = createDef
   if (json["version"] !== MODEL_FORMAT_VERSION) {
     modelErr("version", `unsupported or missing version (expected ${MODEL_FORMAT_VERSION}, got ${JSON.stringify(json["version"])})`);
   }
-  for (const k of ["name", "description"] as const) {
+  for (const k of ["$schema", "name", "description"] as const) {
     if (json[k] !== undefined && typeof json[k] !== "string") modelErr(k, "must be a string");
   }
 
