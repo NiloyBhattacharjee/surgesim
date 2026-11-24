@@ -76,6 +76,7 @@ export class RetryPolicy extends LinkedComponent {
   }
 
   override addEntity(entity: MovingEntity): void {
+    this.trace(entity);
     const made = entity.attributes[this.attemptKey] as number | undefined;
     if (made === undefined) {
       this.requests++;

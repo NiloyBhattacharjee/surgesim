@@ -58,7 +58,7 @@ export class Queue extends LinkedComponent implements PullSource {
       this.dropped++;
       return;
     }
-    this.noteAdded();
+    this.noteAdded(entity);
     this.items.push({ entity, enteredAt: this.now });
     this.lengthChanged();
     for (const w of this.waiters) {

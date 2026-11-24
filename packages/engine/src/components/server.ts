@@ -67,7 +67,7 @@ export class Server extends LinkedComponent implements QueueWaiter {
   private startNext(): boolean {
     const entity = this.queue?.poll() ?? null;
     if (entity === null) return false;
-    this.noteAdded();
+    this.noteAdded(entity);
     this.setBusy(this.busy + 1);
     this.ctx.kernel.schedule(this.secondsToTicks(this.serviceTime.nextSample()), Priority.DEFAULT, () =>
       this.endStep(entity),

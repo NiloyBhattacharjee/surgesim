@@ -3,7 +3,7 @@ import type { AssertionDefinition, ModelDefinition, TimeSeriesConfig } from "../
 import { deriveSeed } from "../rng/index.js";
 import { summarize } from "../stats/index.js";
 import { evaluateAssertions } from "./assertions.js";
-import type { OutputSummary, RunResults, TimeSeriesReplication } from "./results.js";
+import type { OutputSummary, RunResults, TimeSeriesReplication, TraceEvent } from "./results.js";
 import { Simulation } from "./simulation.js";
 
 /** Overrides applied on top of the model's own settings. */
@@ -19,6 +19,12 @@ export interface RunOptions {
   maxEventsPerTick?: number;
   /** Stop with a SimulationLimitError after this many events in one replication (default unlimited). */
   maxEvents?: number;
+  /**
+   * Called each time an entity enters a component, in simulation order: follow individual requests (sessions, messages)
+   * through the model, e.g. to animate them. Nothing is traced without it. Called for every entity in every replication,
+   * so filter in the callback (one replication, every nth entity) for long runs.
+   */
+  trace?: (event: TraceEvent) => void;
 }
 
 /**
@@ -56,7 +62,7 @@ export function runModel(model: ModelDefinition, options: RunOptions = {}): RunR
     const sim = new Simulation(model, replicationSeed(seed, i), i, tsConfig, registry, {
       ...(options.maxEventsPerTick !== undefined ? { maxEventsPerTick: options.maxEventsPerTick } : {}),
       ...(options.maxEvents !== undefined ? { maxEvents: options.maxEvents } : {}),
-    });
+    }, options.trace);
     const { result, timeSeries } = sim.runToEnd();
     reps.push(result);
     if (timeSeries) series.push(timeSeries);

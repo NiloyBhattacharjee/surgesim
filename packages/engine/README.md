@@ -15,6 +15,19 @@ if (loaded.ok) {
 }
 ```
 
+To follow individual requests (to animate them, or to debug a path), pass `trace`. It is called each time an entity
+enters a component, in simulation order, with `{ replication, time, component, entity, createdAt }` (times in
+seconds). It is called for every entity in every replication, so filter in the callback for long runs:
+
+```ts
+const path: string[] = [];
+runModel(loaded.model, { replications: 1, trace: (e) => { if (e.entity === 0) path.push(`${e.time}s ${e.component}`); } });
+// e.g. ["0s traffic", "0s queue", "0.4s workers", "1.1s done"]
+```
+
+Tracing never changes results. A `Topic`'s copies get new ids and keep the original's `createdAt`; a `RetryPolicy` shows
+up once per attempt.
+
 The component type names are exact and case-sensitive (`EntityGenerator`, `Queue`, `Server`, `EntitySink`, ...); if you
 get one wrong, `loadModel` lists the valid types.
 
